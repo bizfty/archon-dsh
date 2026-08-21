@@ -1,0 +1,70 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: dsh-java
+
+  # === 数据源（默认 H2 内存；生产换 PostgreSQL 环境变量）===
+  datasource:
+    url: ${DSH_DB_URL:jdbc:h2:mem:dsh;DB_CLOSE_DELAY=-1}
+    driver-class-name: ${DSH_DB_DRIVER:org.h2.Driver}
+    username: ${DSH_DB_USER:sa}
+    password: ${DSH_DB_PASSWORD:}
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: false
+
+  # === Spring AI — DeepSeek（OpenAI 兼容端点）===
+  ai:
+    openai:
+#      api-key: ${OPENAI_API_KEY:sk-placeholder-please-set-env}
+      api-key: sk-efad94cc989a498fa1ba1bccdb3509a8
+      base-url: ${OPENAI_BASE_URL:https://api.deepseek.com}
+      chat:
+        options:
+          model: ${OPENAI_MODEL:deepseek-chat}
+          temperature: 0.7
+
+# === DSH 应用配置 ===
+dsh:
+  agent:
+    max-steps: 25
+    temperature: 0.7
+    max-history-messages: 200
+    max-parallel-tool-calls: 10
+  agents:
+    main:
+      provider: deepseek
+      model: ${DSH_AGENT_MODEL:}
+      systemPrompt: ""
+    planner:
+      provider: deepseek
+      model: ${DSH_AGENT_MODEL:}
+      systemPrompt: "你是规划 Agent（Planner）。你只做规划、拆解任务与制定步骤，不实现代码、不执行操作。输出清晰可执行的分步计划。"
+
+copilot:
+  skills:
+    directory: ./skills
+
+logging:
+  level:
+    root: INFO
+    com.example.dsh: DEBUG
+
+springdoc:
+  api-docs:
+    path: /api-docs
+    enabled: true
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: true
+    display-request-duration: true
+    operations-sorter: method
+    tags-sorter: alpha
+  show-actuator: false
