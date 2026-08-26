@@ -54,14 +54,21 @@ cd /home/john/workspace/archon-dsh
 # 先确认 archon-dsh 处于干净/已知状态（git 基线）
 git status --short
 
-# 建副本（首次，可加 -v 观察）
+# 建副本（推荐直接用脚本，内含排除清单 + npm install）
+./scripts/sync-to-develop.sh
+
+# 手动建副本（等效，首次可加 -v 观察）
 rsync -a --delete "${EXCLUDES[@]}" \
   /home/john/workspace/archon-dsh/ \
   /home/john/workspace/archon-dsh/develop/
 
-# 校验：两边源码应一致
+# ⚠️ node_modules 被排除清单排除，副本必须补装前端依赖才能构建 dsh-web：
+cd /home/john/workspace/archon-dsh/develop/dsh-web/src/main/webapp && npm install
+
+# 校验：两边源码应一致（static 构建产物差异属预期）
 diff -rq --exclude=.git --exclude=target --exclude=data \
   --exclude=develop --exclude=backup --exclude=.idea \
+  --exclude=node_modules --exclude=static \
   /home/john/workspace/archon-dsh/ \
   /home/john/workspace/archon-dsh/develop/ | head -20
 ```
@@ -143,7 +150,7 @@ git add -A && git commit -m "feat: 描述本次改动（来自 develop 同步）
 
 创建 `scripts/` 目录（archon-dsh 内），放两个脚本，避免手敲出错。
 
-### 5.1 `scripts/sync-to-develop.sh`（archon-dsh → develop）
+### 5.1 `scripts/sync-to-develop.sh`（archon-dsh → develop，含前端依赖补装）
 
 ```bash
 #!/usr/bin/env bash
