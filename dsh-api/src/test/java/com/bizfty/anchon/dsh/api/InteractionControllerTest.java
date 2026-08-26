@@ -47,13 +47,13 @@ class InteractionControllerTest {
                 new InMemoryApprovalProvider(), provider);
 
         CompletableFuture<String> answer = CompletableFuture.supplyAsync(() -> {
-            var a = provider.ask(new com.bizfty.anchon.dsh.interaction.UserQuestion(
+            var a = provider.ask(com.bizfty.anchon.dsh.interaction.UserQuestion.of(
                     "q_test", "继续？", List.of("是", "否"), false), 5000);
             return a.orElse("none");
         });
 
-        waitUntil(() -> !controller.pendingQuestions().isEmpty());
-        String id = (String) controller.pendingQuestions().get(0).get("id");
+        waitUntil(() -> !controller.pendingQuestions(null).isEmpty());
+        String id = (String) controller.pendingQuestions(null).get(0).get("id");
         controller.answer(id, Map.of("answer", "是"));
         assertEquals("是", answer.join());
     }

@@ -45,6 +45,13 @@ spring:
 
 # === DSH 应用配置 ===
 dsh:
+  # 在线代码开发（/api/code/*）：
+  #   coder 场景默认根（项目 = 该目录下的子目录，使用者在此选择项目）
+  #   self  场景默认根（自我完善：直接操作 archon-dsh 源码目录）
+  coder:
+    root: data/workspace/coder/project
+  self:
+    root: ${user.dir}
   agent:
     max-steps: 200
     temperature: 0.7

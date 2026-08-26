@@ -61,7 +61,8 @@ public class AskUserQuestionTool implements AgentTool {
         try {
             // 阻塞前发布事件：SSE 推送 question → 前端渲染选择框
             publishQuestion(context, question, options == null ? List.of() : options, multiSelect);
-            String answer = questionService.ask(question, options == null ? List.of() : options, multiSelect);
+            String answer = questionService.ask(context.sessionId() == null ? null : context.sessionId().value(),
+                    question, options == null ? List.of() : options, multiSelect);
             return ToolResult.success("用户已回答: " + answer, Map.of("answer", answer));
         } catch (UserQuestionService.NoAnswerProviderException e) {
             return ToolResult.failure("无法向用户提问: " + e.getMessage()

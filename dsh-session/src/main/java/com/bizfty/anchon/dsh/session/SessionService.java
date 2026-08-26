@@ -31,7 +31,9 @@ public class SessionService {
     public Session createSession(String title, String model, String cwd) {
         Instant now = Instant.now();
         SessionId id = SessionId.of("sess_" + UUID.randomUUID());
-        Session session = new Session(id, title, model, cwd, now, now);
+        // 无标题会话默认以 session id 为标题（侧边栏/API 可识别）
+        String effectiveTitle = (title == null || title.isBlank()) ? id.value() : title;
+        Session session = new Session(id, effectiveTitle, model, cwd, now, now);
         sessionRepository.save(SessionEntity.from(session));
         return session;
     }

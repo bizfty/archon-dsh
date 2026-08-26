@@ -25,6 +25,19 @@ const lastSlashCommand = ref('');
 
 const SLASH_COMMANDS = ['/skill'];
 
+/** 无任何工作区且无当前会话：输入禁用（对齐官方 hero inert——先选工作目录是前置）。 */
+const inputDisabled = computed(
+  () => appState.disabled
+    || (!appState.sessionId && appState.workspacesPhase === 'ready' && appState.workspaces.length === 0),
+);
+
+/** 输入框占位文案：无工作区时引导先选目录。 */
+const inputPlaceholder = computed(() =>
+  !appState.sessionId && appState.workspacesPhase === 'ready' && appState.workspaces.length === 0
+    ? '先选择工作目录（点击顶部 📁 工作区），再开始对话…'
+    : '分配一个任务或提问任何问题...（Enter 发送 / Shift+Enter 换行 / /skill 选技能）',
+);
+
 function detectSlashCommand(text: string): string | null {
   const trimmed = text.trim();
   for (const cmd of SLASH_COMMANDS) {
@@ -55,6 +68,8 @@ watch(
 );
 
 watch(draft, (v) => {
+  // 写回全局草稿：用户输入实时同步，供「在此创建会话」等切换流程迁移草稿
+  if (v !== appState.draft) appState.draft = v;
   const cmd = detectSlashCommand(v);
   if (cmd === '/skill' && !skillPickerOpen.value) {
     skillPickerOpen.value = true;
@@ -253,8 +268,8 @@ function onSkillPicked(skill: SkillInfo): void {
           :rows="2"
           :autosize="{ minRows: 2, maxRows: 10 }"
           resize="none"
-          placeholder="分配一个任务或提问任何问题...（Enter 发送 / Shift+Enter 换行 / /skill 选技能）"
-          :disabled="appState.disabled"
+          :placeholder="inputPlaceholder"
+          :disabled="inputDisabled"
           @compositionstart="onCompositionStart"
           @compositionend="onCompositionEnd"
           @keydown="onKeydown"

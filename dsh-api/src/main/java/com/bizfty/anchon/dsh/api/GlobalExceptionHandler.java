@@ -1,5 +1,6 @@
 package com.bizfty.anchon.dsh.api;
 
+import com.bizfty.anchon.dsh.agent.AgentCancelledException;
 import com.bizfty.anchon.dsh.agent.AgentLoopException;
 import com.bizfty.anchon.dsh.llm.LlmAuthException;
 import com.bizfty.anchon.dsh.session.SessionService;
@@ -30,6 +31,12 @@ public class GlobalExceptionHandler {
                         "message", "LLM 认证失败，请检查 API Key 是否有效",
                         "detail", e.getMessage()
                 ));
+    }
+
+    /** 用户「停止生成」触发的取消：正常语义，返回 200（前端经 TURN_ERROR cancelled 事件复位）。 */
+    @ExceptionHandler(AgentCancelledException.class)
+    public ResponseEntity<Map<String, Object>> cancelled(AgentCancelledException e) {
+        return ResponseEntity.ok(Map.of("error", "cancelled", "message", e.getMessage()));
     }
 
     @ExceptionHandler(AgentLoopException.class)

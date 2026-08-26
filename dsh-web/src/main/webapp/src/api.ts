@@ -38,6 +38,39 @@ export interface GoalView {
 export interface CreateSessionRequest {
   title?: string;
   model?: string;
+  /** 会话工作目录（代码开发/自我完善：当前项目/源码根目录）。 */
+  cwd?: string;
+}
+
+
+export interface WorkspaceDto {
+  id: string;
+  path: string;
+  title: string | null;
+  sessionIds: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DirectoryEntry {
+  name: string;
+  path: string;
+  hidden: boolean;
+}
+
+export interface DirectoryListing {
+  path: string;
+  home: string;
+  crumbs: DirectoryEntry[];
+  entries: DirectoryEntry[];
+  truncated: boolean;
+}
+
+/** 部署布局固定根：workspaceRoot=固定工作区根、codeRoot=应用源码根、home。 */
+export interface DirectoryRoots {
+  workspaceRoot: string;
+  codeRoot: string;
+  home: string;
 }
 
 export interface ChatRequest {
@@ -51,7 +84,7 @@ export type SseEvent =
   | { event: 'tool'; tool: string; event_type: string; success: boolean; message: string }
   | { event: 'question'; question: string; options: string[]; multiSelect: boolean }
   | { event: 'done'; ok: boolean }
-  | { event: 'error'; message: string }
+  | { event: 'error'; message: string; errorType?: string }
   | { event: 'unknown'; raw: string };
 
 let authToken: string | null = null;
@@ -88,10 +121,11 @@ export async function listSessions(): Promise<SessionDto[]> {
 }
 
 /** 创建会话 */
-export async function createSession(title?: string, model?: string): Promise<SessionDto> {
+export async function createSession(title?: string, model?: string, cwd?: string): Promise<SessionDto> {
   const body: CreateSessionRequest = {};
   if (title) body.title = title;
   if (model) body.model = model;
+  if (cwd) body.cwd = cwd;
   const resp = await fetch(`${BASE}/api/sessions`, {
     method: 'POST',
     headers: headers(),
@@ -115,6 +149,99 @@ export async function deleteSession(sessionId: string): Promise<void> {
     headers: headers(false),
   });
   if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+}
+
+
+// ---------- 工作区（Workspace：先选工作目录再开会话，对齐官方 workspaces service）----------
+
+/** 工作区列表（含各工作区下会话 id）。 */
+export async function listWorkspaces(): Promise<WorkspaceDto[]> {
+  const resp = await fetch(`${BASE}/api/workspaces`, { headers: headers(false) });
+  return parse<WorkspaceDto[]>(resp);
+}
+
+/** 注册工作区（规范化 + 幂等：同路径已存在时返回既有）。 */
+export async function createWorkspace(path: string, title?: string): Promise<WorkspaceDto> {
+  const body: Record<string, string> = { path };
+  if (title) body.title = title;
+  const resp = await fetch(`${BASE}/api/workspaces`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify(body),
+  });
+  return parse<WorkspaceDto>(resp);
+}
+
+/** 删除工作区（仅移除分组记录，其下会话保留）。 */
+export async function deleteWorkspace(workspaceId: string): Promise<void> {
+  const resp = await fetch(`${BASE}/api/workspaces/${encodeURIComponent(workspaceId)}`, {
+    method: 'DELETE',
+    headers: headers(false),
+  });
+  if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+}
+
+/** 重命名工作区。 */
+export async function renameWorkspace(workspaceId: string, title: string): Promise<WorkspaceDto> {
+  const resp = await fetch(`${BASE}/api/workspaces/${encodeURIComponent(workspaceId)}`, {
+    method: 'PATCH',
+    headers: headers(),
+    body: JSON.stringify({ title }),
+  });
+  return parse<WorkspaceDto>(resp);
+}
+
+/**
+ * 连接工作区：复用该目录下已有 blank 会话（无消息），否则新建 cwd=workspace.path 的会话。
+ * 保证每个目录最多一个空白会话。
+ */
+export async function connectWorkspace(workspaceId: string): Promise<{ session: SessionDto }> {
+  const resp = await fetch(`${BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/connect`, {
+    method: 'POST',
+    headers: headers(),
+  });
+  return parse<{ session: SessionDto }>(resp);
+}
+
+/** 最近工作区 id（跨重启记忆）。 */
+export async function getRecentWorkspace(): Promise<{ workspace_id?: string }> {
+  const resp = await fetch(`${BASE}/api/workspaces/recent`, { headers: headers(false) });
+  return parse<{ workspace_id?: string }>(resp);
+}
+
+/** 记录最近工作区。 */
+export async function setRecentWorkspace(workspaceId: string): Promise<{ workspace_id: string }> {
+  const resp = await fetch(`${BASE}/api/workspaces/recent`, {
+    method: 'PUT',
+    headers: headers(),
+    body: JSON.stringify({ workspaceId }),
+  });
+  return parse<{ workspace_id: string }>(resp);
+}
+
+// ---------- 目录浏览（DirectoryBrowser：网页内目录树，对齐官方 directory-picker browse）----------
+
+/** 列出一层子目录（缺省 path = host home）；只返回目录，name-sorted。 */
+export async function listDirectory(path?: string): Promise<DirectoryListing> {
+  const q = path ? `?path=${encodeURIComponent(path)}` : '';
+  const resp = await fetch(`${BASE}/api/dirs${q}`, { headers: headers(false) });
+  return parse<DirectoryListing>(resp);
+}
+
+/** 部署布局固定根（工作区根 / 代码根 / home），供目录浏览器做快捷入口。 */
+export async function getDirectoryRoots(): Promise<DirectoryRoots> {
+  const resp = await fetch(`${BASE}/api/dirs/roots`, { headers: headers(false) });
+  return parse<DirectoryRoots>(resp);
+}
+
+/** 在父目录下新建子目录；返回新目录绝对路径。 */
+export async function createDirectory(path: string, name: string): Promise<{ path: string }> {
+  const resp = await fetch(`${BASE}/api/dirs`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify({ path, name }),
+  });
+  return parse<{ path: string }>(resp);
 }
 
 /**
@@ -317,7 +444,7 @@ function emit(rawEvent: string, onEvent: (ev: SseEvent) => void, markDone: () =>
         multiSelect: Boolean(payload.multiSelect),
       });
     } else if (eventName === 'error') {
-      onEvent({ event: 'error', message: String(payload.message ?? '') });
+      onEvent({ event: 'error', message: String(payload.message ?? ''), errorType: String(payload.error_type ?? '') });
     } else {
       onEvent({ event: 'unknown', raw: data });
     }
@@ -377,15 +504,26 @@ export async function userLogin(username: string, password: string): Promise<{ t
 
 export interface PendingQuestion {
   id: string;
+  sessionId: string;
   question: string;
   options: string[];
   multiSelect: boolean;
 }
 
-/** 挂起的用户问题（模型在 ask_user_question 上阻塞等待）。 */
-export async function pendingQuestions(): Promise<PendingQuestion[]> {
-  const resp = await fetch(`${BASE}/api/interactions/questions/pending`, { headers: headers(false) });
+/** 挂起的用户问题（模型在 ask_user_question 上阻塞等待）；传 sessionId 只取该会话的。 */
+export async function pendingQuestions(sessionId?: string | null): Promise<PendingQuestion[]> {
+  const q = sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : '';
+  const resp = await fetch(`${BASE}/api/interactions/questions/pending${q}`, { headers: headers(false) });
   return parse<PendingQuestion[]>(resp);
+}
+
+/** 取消某会话的当前执行（前端「停止生成」按钮；后端协作式取消，AgentLoop 在 step 间隙停止）。 */
+export async function cancelChat(sessionId: string): Promise<void> {
+  const resp = await fetch(`${BASE}/api/sessions/${encodeURIComponent(sessionId)}/chat/cancel`, {
+    method: 'POST',
+    headers: headers(),
+  });
+  if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
 }
 
 export interface TrajectoryStep {
@@ -784,6 +922,8 @@ export interface CodeProject {
   fileCount: number;
   /** 项目类型：maven / gradle / node / generic。 */
   projectType?: string;
+  /** 场景根目录绝对路径（coder = 项目根；self = 源码根）。用于「在此目录开会话」。 */
+  root?: string;
 }
 
 export interface CodeTreeNode {

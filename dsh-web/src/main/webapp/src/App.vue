@@ -4,13 +4,17 @@ import { Check } from '@element-plus/icons-vue';
 import Sidebar from './components/Sidebar.vue';
 import MsgView from './components/MsgView.vue';
 import Composer from './components/Composer.vue';
+import DirectoryBrowser from './components/DirectoryBrowser.vue';
 import GoalView from './components/GoalView.vue';
 import TrajectoryView from './components/TrajectoryView.vue';
 import PlanView from './components/PlanView.vue';
 import ToolsPage from './components/ToolsPage.vue';
 import {
   appState, pushNotice, initTheme, setTheme, setModel, setPlanMode,
-  THEMES, type ThemeKey, toggleSidebar,
+  THEMES, type ThemeKey,
+  setSessionRunning, appendStream, clearStream, projectSession, isSessionRunning,
+  loadWorkspaces, openWorkspace, workspaceLabel, workspaceOfCurrent, sessionsOfWorkspace,
+  loadDirectoryRoots, defaultWorkspace, carryDraftTo,
 } from './store';
 import {
   listSessions, createSession, listMessages, deleteSession,
@@ -18,6 +22,7 @@ import {
   getGoal, createGoal, updateGoal, pendingQuestions,
   getTrajectory, listModels,
   getPlanMode, enterPlanMode, exitPlanMode, submitPlanMode,
+  cancelChat, createWorkspace,
   type SseEvent,
 } from './api';
 import { WsClient, connectionLabel, type SessionFrame } from './ws';
@@ -36,6 +41,9 @@ const subagentBusy = ref(false);
 /** 本 turn 是否已通过 TURN_ERROR 事件提示（避免与 HTTP catch 重复提示）。 */
 let turnErrorNotified = false;
 
+/** 当前 SSE 流句柄（回退通道）；stop() 时 abort 防断线续流重连。 */
+let activeStreamHandle: { abort: () => void } | null = null;
+
 const SIDEBAR_EXPANDED = 260;
 const SIDEBAR_COLLAPSED = 56;
 
@@ -52,13 +60,13 @@ const isToolView = computed(() =>
 const currentTitle = computed(() => {
   if (!appState.sessionId) return '选择或新建一个会话';
   const s = appState.sessions.find((x) => x.id === appState.sessionId);
-  return s?.title || '会话';
+  return s?.title || s?.id || '会话';
 });
 
 async function loadSessions(): Promise<void> {
   try {
     const list = await listSessions();
-    appState.sessions = list.map((s) => ({ id: s.id, title: s.title, model: s.model, updatedAt: s.updatedAt }));
+    appState.sessions = list.map((s) => ({ id: s.id, title: s.title, model: s.model, cwd: s.cwd, updatedAt: s.updatedAt }));
     appState.sessionsPhase = 'ready';
     appState.sessionsError = null;
   } catch (e) {
@@ -83,11 +91,13 @@ async function loadModels(): Promise<void> {
 }
 
 async function openSession(id: string): Promise<void> {
-  if (appState.running) return;
-  appState.sessionId = id;
+  if (id === appState.sessionId) return; // 点击当前会话本身：无需操作
+  // 流按会话隔离：切换不打断任何会话的执行；视图投影到目标会话的运行状态/流缓冲
+  projectSession(id);
   appState.messages = [];
   appState.goal = null;
   appState.trajectory = null;
+  appState.question = null;
   appState.view = 'chat';
   try {
     appState.messages = await listMessages(id) as never[];
@@ -100,24 +110,94 @@ async function openSession(id: string): Promise<void> {
 }
 
 async function newSession(): Promise<void> {
-  if (appState.running) return;
+  // 对齐官方「先选工作目录再开会话」：目标工作区 = 当前会话所属 → 最近 → 无则打开目录浏览器引导
+  const current = workspaceOfCurrent();
+  const target = current?.id
+    ?? (appState.recentWorkspaceId && appState.workspaces.some(w => w.id === appState.recentWorkspaceId)
+      ? appState.recentWorkspaceId
+      : null);
+  if (!target) {
+    dirBrowserOpen.value = true; // 空状态引导：先选工作目录
+    return;
+  }
+  await connectToWorkspace(target);
+}
+
+/** 连接工作区（复用其 blank 会话或新建）并设为当前会话。 */
+async function connectToWorkspace(workspaceId: string): Promise<void> {
+  // New Session：openWorkspace（内部 projectSession）会 stash 旧草稿，先快照源会话与草稿
+  const fromId = appState.sessionId;
+  const carriedDraft = appState.draft;
   try {
-    const s = await createSession('新会话', appState.model);
-    await loadSessions();
-    await openSession(s.id);
+    const sessionId = await openWorkspace(workspaceId);
+    if (sessionId) {
+      // 草稿跟着用户走：迁移到新会话，清空源会话（对齐 deepseek-harness selectWorkspace）
+      carryDraftTo(fromId, sessionId, carriedDraft);
+      await loadSessions();
+      await openSession(sessionId);
+    }
   } catch (e) {
-    pushNotice('新建会话失败: ' + (e as Error).message);
+    pushNotice('连接工作区失败: ' + (e as Error).message);
   }
 }
 
+// ---- 工作区引导（对齐官方 WorkspacePicker：菜单 + 目录浏览 + 采纳）----
+const dirBrowserOpen = ref(false);
+const pickingBusy = ref(false);
+
+/** 打开目录浏览器（「添加工作目录…」）。 */
+function startWorkspaceFlow(): void {
+  dirBrowserOpen.value = true;
+}
+
+/** DirectoryBrowser 确认：createWorkspace(path) 采纳 → 连接该工作区（自动开会话）。 */
+async function pickWorkspace(path: string): Promise<void> {
+  pickingBusy.value = true;
+  try {
+    const ws = await createWorkspace(path);
+    dirBrowserOpen.value = false;
+    await loadWorkspaces();
+    await connectToWorkspace(ws.id);
+  } catch (e) {
+    pushNotice('创建工作区失败: ' + (e as Error).message);
+  } finally {
+    pickingBusy.value = false;
+  }
+}
+
+/** 工作区 chip 菜单命令：'add' → 目录浏览；'ws:{id}' → 连接该工作区。 */
+function onWorkspaceCommand(cmd: string): void {
+  if (cmd === 'add') {
+    startWorkspaceFlow();
+    return;
+  }
+  if (cmd.startsWith('ws:')) {
+    void connectToWorkspace(cmd.slice(3));
+  }
+}
+
+/** 当前显示的 workspace label（chip）：当前会话所属 → 最近工作区 → 占位「选择工作目录」。 */
+const currentWorkspaceLabel = computed(() => {
+  const cur = workspaceOfCurrent();
+  if (cur) return '📁 ' + workspaceLabel(cur);
+  const recent = appState.workspaces.find(w => w.id === appState.recentWorkspaceId);
+  if (recent) return '📁 ' + workspaceLabel(recent);
+  return '📁 选择工作目录';
+});
+
 async function removeSession(): Promise<void> {
   const id = appState.sessionId;
-  if (!id || appState.running) return;
-  if (!window.confirm('删除当前会话？')) return;
+  if (!id) return;
+  const running = isSessionRunning(id);
+  if (!window.confirm(running ? '该会话正在执行中，删除后任务将中断且不可恢复，确定删除？' : '删除当前会话？')) return;
   try {
     await deleteSession(id);
-    appState.sessionId = null;
+    delete appState.draftsBySession[id];
+    projectSession(null);
     appState.messages = [];
+    appState.goal = null;
+    appState.trajectory = null;
+    appState.question = null;
     await loadSessions();
   } catch (e) {
     pushNotice('删除失败: ' + (e as Error).message);
@@ -126,7 +206,6 @@ async function removeSession(): Promise<void> {
 
 /** 计划页签「继续执行」：让 agent 继续按当前计划推进下一步（复用 send 驱动一轮）。 */
 function continuePlan(): void {
-  if (appState.running) return;
   void send('继续执行当前计划：检查计划进度，推进下一步（plan_get / plan_step_update），直到计划完成。');
 }
 
@@ -140,9 +219,10 @@ async function send(text: string): Promise<void> {
   turnErrorNotified = false;
   appState.messages = [...appState.messages, { id: 'local', role: 'user', content: text }];
   appState.draft = '';
+  appState.draftsBySession[sessionId] = '';
   appState.disabled = true;
-  appState.running = true;
-  appState.streamingText = '';
+  setSessionRunning(sessionId, true);
+  clearStream(sessionId);
 
   try {
     if (wsAvailable.value) {
@@ -150,7 +230,13 @@ async function send(text: string): Promise<void> {
       await sendChat(sessionId, { message: text, model: appState.model });
     } else {
       // 回退通道：SSE 流式（chatStream 内置断线续流重连）
-      await chatStream(sessionId, { message: text, model: appState.model }, (ev) => onSseEvent(ev)).promise;
+      const handle = chatStream(sessionId, { message: text, model: appState.model }, (ev) => onSseEvent(sessionId, ev));
+      activeStreamHandle = handle;
+      try {
+        await handle.promise;
+      } finally {
+        activeStreamHandle = null;
+      }
     }
   } catch (e) {
     // TURN_ERROR 事件已提示过（含明确"任务失败"文案）则不重复提示
@@ -163,33 +249,39 @@ async function send(text: string): Promise<void> {
   }
 }
 
-function onSse(ev: SseEvent): void {
-  onSseEvent(ev);
-}
-
-/** SSE 回退通道事件 → 与 WS 帧一致的 UI 更新。 */
-function onSseEvent(ev: SseEvent): void {
+/** SSE 回退通道事件 → 与 WS 帧一致的 UI 更新（按 sessionId 归属）。 */
+function onSseEvent(sessionId: string, ev: SseEvent): void {
   switch (ev.event) {
     case 'message':
-      appState.streamingText += ev.content;
+      appendStream(sessionId, ev.content);
       break;
     case 'tool':
-      appState.messages = [...appState.messages, {
-        id: 'tool-' + Math.random().toString(36).slice(2, 8),
-        role: 'tool', content: ev.message, toolName: ev.tool,
-      }];
+      // 仅当前会话实时渲染 tool 行；非当前会话切回时 listMessages 重拉
+      if (sessionId === appState.sessionId) {
+        appState.messages = [...appState.messages, {
+          id: 'tool-' + Math.random().toString(36).slice(2, 8),
+          role: 'tool', content: ev.message, toolName: ev.tool,
+        }];
+      }
       break;
     case 'question':
-      appState.question = { id: '', question: ev.question, options: ev.options, multiSelect: ev.multiSelect };
-      void fetchQuestionId();
+      if (sessionId === appState.sessionId) {
+        appState.question = { id: '', question: ev.question, options: ev.options, multiSelect: ev.multiSelect };
+        void fetchQuestionId();
+      }
       break;
     case 'error':
+      if (ev.errorType === 'cancelled') {
+        // 用户「停止生成」：静默复位（stop() 已提示），保留已生成内容
+        setSessionRunning(sessionId, false);
+        clearStream(sessionId);
+        break;
+      }
       // SSE 通道的 turn 失败：标记已提示，避免与 HTTP catch 重复
-      turnErrorNotified = true;
-      appState.streamingText = '';
-      appState.running = false;
-      appState.disabled = false;
-      pushNotice('任务失败: ' + ev.message);
+      if (sessionId === appState.sessionId) turnErrorNotified = true;
+      setSessionRunning(sessionId, false);
+      clearStream(sessionId);
+      pushNotice((sessionId !== appState.sessionId ? `[${sessionId.slice(0, 8)}] ` : '') + '任务失败: ' + ev.message);
       break;
     default:
       break;
@@ -197,8 +289,9 @@ function onSseEvent(ev: SseEvent): void {
 }
 
 async function fetchQuestionId(): Promise<void> {
+  if (!appState.sessionId) return;
   try {
-    const list = await pendingQuestions();
+    const list = await pendingQuestions(appState.sessionId);
     if (list.length > 0 && appState.question) {
       appState.question = { ...appState.question, id: list[0].id };
     }
@@ -208,10 +301,11 @@ async function fetchQuestionId(): Promise<void> {
 }
 
 function finalize(): void {
-  appState.running = false;
-  appState.disabled = false;
-  appState.streamingText = '';
   const id = appState.sessionId;
+  if (id) {
+    setSessionRunning(id, false);
+    clearStream(id);
+  }
   if (id) {
     listMessages(id).then((ms) => { appState.messages = ms as never[]; }).catch(() => undefined);
     loadSessions().catch(() => undefined);
@@ -221,9 +315,26 @@ function finalize(): void {
   }
 }
 
-function stop(): void {
-  // HTTP 上行无可取消句柄（turn 由后端跑完）；WS 下行继续收事件。
-  // 如需中断，可扩展后端取消端点；当前保持与官方一致：上行提交即执行。
+async function stop(): Promise<void> {
+  const id = appState.sessionId;
+  if (!id || !isSessionRunning(id)) return;
+  // 中止 SSE 流（防断线续流重连；WS 主通道无前端流）
+  activeStreamHandle?.abort();
+  activeStreamHandle = null;
+  // 通知后端协作式取消（AgentLoop 在 step 间隙停止）
+  try {
+    await cancelChat(id);
+  } catch (e) {
+    // 后端不可达时仍本地复位（服务端 turn 会自然跑完，下次切换不受影响）
+    pushNotice('停止请求未送达: ' + (e as Error).message);
+  }
+  // 本地复位 + 重拉消息（已生成内容保留）
+  setSessionRunning(id, false);
+  clearStream(id);
+  pushNotice('已停止生成');
+  listMessages(id).then((ms) => { appState.messages = ms as never[]; }).catch(() => undefined);
+  loadSessions().catch(() => undefined);
+  refreshGoal(id).catch(() => undefined);
 }
 
 /** 刷新当前会话的子代理列表（chat 顶部展示）。 */
@@ -242,9 +353,8 @@ function onSelectTool(id: string): void {
 
 // ---- 常驻 WebSocket 下行（对齐官方：退避重连 + connected/reconnecting）----
 function onWsFrame(frame: SessionFrame): void {
-  // 只处理当前会话的事件（frame 携带 sessionId；历史会话事件忽略）
-  if (!appState.sessionId || frame.sessionId !== appState.sessionId) return;
-  handleEvent(frame.event.eventType, frame.event.data);
+  // 流按会话隔离：事件按 sessionId 分发；非当前会话只更新 running/流缓冲，消息切回时重拉
+  handleEvent(frame.sessionId, frame.event.eventType, frame.event.data);
 }
 
 function onWsState(state: 'connected' | 'reconnecting' | 'closed'): void {
@@ -268,67 +378,78 @@ function onWsReconnected(): void {
   }
 }
 
-/** 会话事件 → UI 状态（对齐官方事件流：token/tool/question 实时更新）。 */
-function handleEvent(eventType: string, data: Record<string, unknown>): void {
+/** 会话事件 → UI 状态（按 sessionId 归属；非当前会话仅更新 running/流缓冲）。 */
+function handleEvent(sessionId: string, eventType: string, data: Record<string, unknown>): void {
+  const isCurrent = sessionId === appState.sessionId;
   switch (eventType) {
     case 'ASSISTANT_TOKEN':
-      appState.streamingText += String(data.content ?? '');
+      appendStream(sessionId, String(data.content ?? ''));
       break;
     case 'TOOL_CALL':
-      appState.messages = [...appState.messages, {
-        id: 'tool-' + Math.random().toString(36).slice(2, 8),
-        role: 'tool', content: String(data.arguments ?? ''), toolName: String(data.tool ?? '工具'),
-      }];
+      if (isCurrent) {
+        appState.messages = [...appState.messages, {
+          id: 'tool-' + Math.random().toString(36).slice(2, 8),
+          role: 'tool', content: String(data.arguments ?? ''), toolName: String(data.tool ?? '工具'),
+        }];
+      }
       break;
     case 'TOOL_RESULT':
     case 'TOOL_ERROR':
     case 'TOOL_DENIED':
     case 'TOOL_TIMEOUT':
-      appState.messages = [...appState.messages, {
-        id: 'tool-' + Math.random().toString(36).slice(2, 8),
-        role: 'tool', content: String(data.content ?? data.message ?? ''), toolName: String(data.tool ?? '工具'),
-      }];
+      if (isCurrent) {
+        appState.messages = [...appState.messages, {
+          id: 'tool-' + Math.random().toString(36).slice(2, 8),
+          role: 'tool', content: String(data.content ?? data.message ?? ''), toolName: String(data.tool ?? '工具'),
+        }];
+      }
       break;
     case 'QUESTION_REQUESTED':
-      // ask_user_question 阻塞 → 前端渲染选择框（id 经 /questions/pending 获取）
-      appState.question = {
-        id: '',
-        question: String(data.question ?? ''),
-        options: Array.isArray(data.options) ? data.options.map(String) : [],
-        multiSelect: Boolean(data.multiSelect),
-      };
-      void fetchQuestionId();
+      // ask_user_question 阻塞 → 当前会话渲染选择框（id 经 /questions/pending 获取）
+      if (isCurrent) {
+        appState.question = {
+          id: '',
+          question: String(data.question ?? ''),
+          options: Array.isArray(data.options) ? data.options.map(String) : [],
+          multiSelect: Boolean(data.multiSelect),
+        };
+        void fetchQuestionId();
+      }
       break;
     case 'APPROVAL_REQUESTED':
-      pushNotice(`等待审批: ${String(data.tool ?? '工具')}`);
+      // 审批跨会话也提示（后台会话等待审批时用户需知晓），带会话前缀
+      pushNotice(`${isCurrent ? '' : '[' + sessionId.slice(0, 8) + '] '}等待审批: ${String(data.tool ?? '工具')}`);
       break;
     case 'TURN_ERROR':
-      // turn 失败（如超过最大步数上限）：复位 UI + 明确提示 + 标记已处理
-      turnErrorNotified = true;
-      appState.streamingText = '';
-      appState.running = false;
-      appState.disabled = false;
-      pushNotice(`任务失败: ${String(data.message ?? 'agent 执行出错')}`);
-      {
-        const errId = appState.sessionId;
-        if (errId) {
-          listMessages(errId).then((ms) => { appState.messages = ms as never[]; }).catch(() => undefined);
+      if (data.error_type === 'cancelled') {
+        // 用户「停止生成」：静默复位（stop() 已提示），保留已生成内容
+        setSessionRunning(sessionId, false);
+        clearStream(sessionId);
+        if (isCurrent) {
+          listMessages(sessionId).then((ms) => { appState.messages = ms as never[]; }).catch(() => undefined);
         }
+        break;
+      }
+      // turn 失败（如超过最大步数上限）：复位该会话运行状态 + 明确提示
+      if (isCurrent) turnErrorNotified = true;
+      setSessionRunning(sessionId, false);
+      clearStream(sessionId);
+      pushNotice(`${isCurrent ? '' : '[' + sessionId.slice(0, 8) + '] '}任务失败: ${String(data.message ?? 'agent 执行出错')}`);
+      if (isCurrent) {
+        listMessages(sessionId).then((ms) => { appState.messages = ms as never[]; }).catch(() => undefined);
       }
       break;
     case 'TURN_END':
-      // turn 完成：拉取持久化消息刷新（最终 assistant 内容落库）
-      appState.streamingText = '';
-      {
-        const tid = appState.sessionId;
-        if (tid) {
-          listMessages(tid).then((ms) => { appState.messages = ms as never[]; }).catch(() => undefined);
-          loadSessions().catch(() => undefined);
-          refreshGoal(tid).catch(() => undefined);
-          refreshSubagents(tid).catch(() => undefined);
-          refreshPlan(tid).catch(() => undefined);
-        }
+      // turn 完成：复位该会话状态；当前会话则拉取持久化消息刷新（最终 assistant 内容落库）
+      setSessionRunning(sessionId, false);
+      clearStream(sessionId);
+      if (isCurrent) {
+        listMessages(sessionId).then((ms) => { appState.messages = ms as never[]; }).catch(() => undefined);
+        refreshGoal(sessionId).catch(() => undefined);
+        refreshSubagents(sessionId).catch(() => undefined);
+        refreshPlan(sessionId).catch(() => undefined);
       }
+      loadSessions().catch(() => undefined); // 标题/时间可能更新，始终刷新侧边栏
       break;
     default:
       break;
@@ -508,9 +629,35 @@ async function doSubmitPlan(): Promise<void> {
 
 watch(() => appState.model, onModelChange);
 
+// 冷启动恢复（对齐官方 startInitialSelection）：sessions + workspaces 基线就绪
+// 且无当前会话时，自动连接最近工作区（复用其 blank 会话）；无最近工作区则
+// 保持空态引导（hero chip 显示「选择工作目录」，先选目录再开会话）。
+let initialSelectionStarted = false;
+watch(
+  () => [appState.sessionsPhase, appState.workspacesPhase, appState.sessionId] as const,
+  () => {
+    if (initialSelectionStarted) return;
+    if (appState.sessionsPhase !== 'ready' || appState.workspacesPhase !== 'ready') return;
+    initialSelectionStarted = true;
+    if (appState.sessionId) return; // 已有当前会话（刷新/恢复场景）
+    const recent = appState.workspaces.find((w) => w.id === appState.recentWorkspaceId);
+    if (recent) {
+      void connectToWorkspace(recent.id); // 内部已 catch；失败保持空态引导
+    } else {
+      // 无最近工作区：连接固定工作区根注册的默认工作区（部署布局 /data/anchon/workspace，
+      // 启动时自动注册；首次启动用户零操作直接可用）；连不上则保持空态引导。
+      const fixed = defaultWorkspace();
+      if (fixed) void connectToWorkspace(fixed.id);
+    }
+  },
+  { immediate: true },
+);
+
 onMounted(() => {
   initTheme();
   void loadSessions();
+  void loadWorkspaces();
+  void loadDirectoryRoots();
   void loadModels();
   // 常驻 WebSocket 下行：连接一次，事件实时推；断线自动退避重连（对齐官方）。
   // 连续建连失败 → onAvailabilityChange(false) → 回退 SSE 通道。
@@ -532,7 +679,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="app-shell">
     <aside class="sidebar" :style="{ width: sidebarWidth + 'px', minWidth: sidebarWidth + 'px' }">
-      <Sidebar @new-session="newSession" @select-session="openSession" @select-tool="onSelectTool" />
+      <Sidebar @new-session="newSession" @new-session-in="connectToWorkspace" @select-session="openSession" @select-tool="onSelectTool" @add-workspace="startWorkspaceFlow" />
     </aside>
     <!-- 工具独立页面（保留侧边栏，右侧为独立页面布局：无 main 页签/输入 dock） -->
     <ToolsPage v-if="isToolView" :view="appState.view" @back="appState.view = 'chat'" />
@@ -544,10 +691,6 @@ onBeforeUnmount(() => {
           <b>{{ currentTitle }}</b>
         </div>
         <div class="right">
-          <button class="icon-btn sidebar-toggle" @click="toggleSidebar()" :title="appState.sidebarCollapsed ? '展开侧边栏' : '折叠侧边栏'">
-            <span v-if="!appState.sidebarCollapsed">◀</span>
-            <span v-else>▶</span>
-          </button>
           <span class="safety">🛡️ 沙箱防护中</span>
           <span class="conn" :class="appState.connectionState">{{ connectionLabel(appState.connectionState) }}</span>
           <span v-if="appState.planMode" class="plan-chip" @click="togglePlanModeBackend()">📋 计划模式</span>
@@ -565,6 +708,29 @@ onBeforeUnmount(() => {
                   <span class="theme-name">{{ t.name }}</span>
                   <el-icon v-if="t.key === appState.theme" class="check"><Check /></el-icon>
                 </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+          <!-- 工作区 chip（对齐官方 hero workspace：切换/添加，始终可交互） -->
+          <el-dropdown trigger="click" @command="onWorkspaceCommand">
+            <button class="workspace-chip" :title="appState.workspaces.map(w => workspaceLabel(w)).join('\n')">
+              {{ currentWorkspaceLabel }}
+            </button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item
+                  v-for="w in appState.workspaces" :key="w.id" :command="'ws:' + w.id"
+                  :class="{ 'is-active': w.id === (workspaceOfCurrent()?.id ?? appState.recentWorkspaceId) }"
+                >
+                  <span class="ws-item">
+                    <span class="ws-name">📁 {{ workspaceLabel(w) }}</span>
+                    <span v-if="sessionsOfWorkspace(w).length > 0" class="ws-sessions">
+                      {{ sessionsOfWorkspace(w).slice(0, 3).map(s => s.title || s.id).join(' · ') }}<template v-if="sessionsOfWorkspace(w).length > 3"> …</template>
+                    </span>
+                  </span>
+                  <span class="ws-path">{{ w.path }} · {{ sessionsOfWorkspace(w).length }} 会话</span>
+                </el-dropdown-item>
+                <el-dropdown-item divided command="add">＋ 添加工作目录…</el-dropdown-item>
               </el-dropdown-menu>
             </template>
           </el-dropdown>
@@ -595,7 +761,7 @@ onBeforeUnmount(() => {
       </nav>
       <!-- 消息流主列（常驻 dock 之上；对话/计划/目标/轨迹均为 body 视图切换） -->
       <div class="body">
-        <MsgView v-show="appState.view === 'chat'" />
+        <MsgView v-show="appState.view === 'chat'" @choose-workspace="startWorkspaceFlow" />
         <div v-show="appState.view === 'plan'" class="plan-view">
           <div class="plan-toolbar">
             <el-button
@@ -671,6 +837,16 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </el-drawer>
+
+    <!-- 工作目录选择（DirectoryBrowser：网页内目录树浏览） -->
+    <DirectoryBrowser
+      :open="dirBrowserOpen"
+      :busy="pickingBusy"
+      :initial-path="appState.workspaceRoot ?? undefined"
+      :roots="appState.directoryRoots ?? undefined"
+      @pick="pickWorkspace"
+      @cancel="dirBrowserOpen = false"
+    />
   </div>
 </template>
 
@@ -683,13 +859,6 @@ onBeforeUnmount(() => {
 .dim { color: var(--dsh-fg-2); }
 .sep { color: var(--dsh-fg-2); margin: 0 6px; }
 .right { display: flex; align-items: center; gap: 12px; }
-.icon-btn {
-  background: none; border: 1px solid var(--dsh-border); border-radius: 8px;
-  color: var(--dsh-fg-2); cursor: pointer; padding: 5px 10px; font-size: 13px;
-  display: flex; align-items: center; justify-content: center;
-  transition: all .15s;
-}
-.icon-btn:hover { color: var(--dsh-accent); border-color: var(--dsh-accent); }
 .safety { font-size: 12px; color: var(--dsh-success); border: 1px solid var(--dsh-border); padding: 4px 10px; border-radius: 16px; background: var(--dsh-bg-2); }
 .plan-chip { font-size: 12px; color: var(--dsh-accent); border: 1px solid var(--dsh-accent); padding: 4px 10px; border-radius: 16px; background: var(--dsh-accent-soft); cursor: pointer; transition: background-color .15s; }
 .plan-chip:hover { background: var(--dsh-accent); color: #fff; }
@@ -719,6 +888,18 @@ onBeforeUnmount(() => {
 .plan-text-collapse :deep(.el-collapse-item__content) { background: var(--dsh-bg-2); }
 .plan-dag-title { font-size: 13px; color: var(--dsh-fg-2); margin-top: 4px; }
 
+.workspace-chip {
+  display: flex; align-items: center; gap: 6px;
+  background: var(--dsh-bg-2); border: 1px solid var(--dsh-border);
+  color: var(--dsh-fg-0); border-radius: 16px; padding: 4px 12px;
+  font-size: 12px; cursor: pointer; font-family: inherit;
+  max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.workspace-chip:hover { border-color: var(--dsh-accent); color: var(--dsh-accent); }
+.ws-path { display: block; font-size: 11px; color: var(--dsh-fg-2); max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws-item { display: block; }
+.ws-name { display: block; }
+.ws-sessions { display: block; font-size: 11px; color: var(--dsh-fg-2); margin-top: 2px; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .theme-btn { display: flex; align-items: center; gap: 6px; }
 .accent-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--dsh-accent); }
 .swatch { display: inline-block; width: 14px; height: 14px; border-radius: 4px; margin-right: 8px; vertical-align: middle; border: 1px solid var(--dsh-border); }

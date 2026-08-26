@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -59,10 +60,13 @@ public class InteractionController {
     }
 
     @GetMapping("/questions/pending")
-    public List<Map<String, Object>> pendingQuestions() {
+    public List<Map<String, Object>> pendingQuestions(
+            @RequestParam(required = false) String sessionId) {
         return questionProvider.pendingQuestions().stream()
+                .filter(q -> sessionId == null || sessionId.isBlank() || sessionId.equals(q.sessionId()))
                 .map(q -> Map.<String, Object>of(
                         "id", q.id(),
+                        "session_id", q.sessionId() == null ? "" : q.sessionId(),
                         "question", q.question(),
                         "options", q.options(),
                         "multi_select", q.multiSelect()))

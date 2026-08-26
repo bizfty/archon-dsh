@@ -31,7 +31,8 @@ class SubagentApiTest {
         com.bizfty.anchon.dsh.agent.AgentLoopService loop = mock(com.bizfty.anchon.dsh.agent.AgentLoopService.class);
         com.bizfty.anchon.dsh.core.event.SessionEventBus bus = new com.bizfty.anchon.dsh.core.event.SessionEventBus();
         com.bizfty.anchon.dsh.feedback.FeedbackService feedback = mock(com.bizfty.anchon.dsh.feedback.FeedbackService.class);
-        return new SessionController(sessions, loop, bus, feedback, new SseExecutionStore(), registry, runner);
+        return new SessionController(sessions, loop, bus, feedback, new SseExecutionStore(), registry, runner,
+                new com.bizfty.anchon.dsh.agent.SessionCancellation());
     }
 
     @Test

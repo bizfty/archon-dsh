@@ -4,14 +4,19 @@
 // 编辑文件的同时能实时看到 AI 对话与文件变化（工具调用写文件会高亮）。
 // 数据共享全局 appState：WS 下行在 App.vue 常驻处理，消息实时进入 store；
 // 本组件只做 HTTP 上行（sendChat），与主对话行为一致。
-import { computed, nextTick, ref, watch } from 'vue';
-import { appState, pushNotice } from '../store';
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
+import { appState, pushNotice, setSessionRunning, clearStream, projectSession, loadWorkspaces } from '../store';
 import { sendChat, listMessages, createSession, listSessions } from '../api';
 import { renderMarkdown, escapeHtml } from '../render';
 
 const open = ref(false);
 const draft = ref('');
 const listRef = ref<HTMLElement | null>(null);
+
+/** 会话列表面板是否展开（「＋ 新建会话」/ 会话切换）。 */
+const sessionListOpen = ref(false);
+/** 新建会话进行中（防连点）。 */
+const creatingSession = ref(false);
 
 /** 写文件类工具：高亮显示（文件变化）。 */
 const WRITE_RE = /^(write|edit|save|create|patch|update)/i;
@@ -86,6 +91,86 @@ function onUp(): void {
   window.removeEventListener('pointerup', onUp);
 }
 
+// ---- 多会话：作用域 = 当前代码目录（appState.codeCwd，由 CodeView 同步）----
+
+/** 目录路径取 basename（显示用）。 */
+function dirBase(p: string): string {
+  const t = p.replace(/\/+$/, '');
+  const i = t.lastIndexOf('/');
+  return i >= 0 ? t.slice(i + 1) : t;
+}
+
+function fmtTime(iso: string): string {
+  return new Date(iso).toLocaleString('zh-CN', {
+    month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+  });
+}
+
+/** 当前作用目录（代码编辑器当前项目/源码根；未选择时 null）。 */
+const scopeCwd = computed(() => appState.codeCwd);
+/** 作用目录显示标签（📁 basename / 未选择目录）。 */
+const scopeLabel = computed(() => (scopeCwd.value ? '📁 ' + dirBase(scopeCwd.value) : '未选择目录'));
+/** 当前目录下的会话列表（按更新时间倒序）。 */
+const scopeSessions = computed(() => {
+  const cwd = scopeCwd.value;
+  if (!cwd) return [];
+  return appState.sessions
+    .filter((x) => x.cwd === cwd)
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+});
+
+/** 新建会话（cwd = 当前代码目录），采纳为当前会话并同步侧边栏会话列表。 */
+async function createNewSession(): Promise<void> {
+  const cwd = scopeCwd.value;
+  if (!cwd) {
+    pushNotice('请先在代码编辑器中选择项目/目录');
+    return;
+  }
+  if (creatingSession.value) return;
+  creatingSession.value = true;
+  try {
+    const s = await createSession('新会话', appState.model, cwd);
+    const list = await listSessions();
+    appState.sessions = list.map((x) => ({ id: x.id, title: x.title, model: x.model, cwd: x.cwd, updatedAt: x.updatedAt }));
+    void loadWorkspaces(); // 刷新工作区 sessionIds 快照，侧边栏分组同步显示新会话
+    projectSession(s.id);
+    appState.messages = [];
+    sessionListOpen.value = false;
+    pushNotice('已新建会话：' + dirBase(cwd));
+    void nextTick(scrollBottom);
+  } catch (e) {
+    pushNotice('新建会话失败: ' + (e as Error).message);
+  } finally {
+    creatingSession.value = false;
+  }
+}
+
+/** 切换会话：projectSession 投影运行/流缓冲/草稿，重载消息（保持工具页视图不变）。 */
+async function switchSession(id: string): Promise<void> {
+  sessionListOpen.value = false;
+  if (id === appState.sessionId) return;
+  projectSession(id);
+  appState.messages = [];
+  try {
+    appState.messages = await listMessages(id) as never[];
+  } catch (e) {
+    pushNotice('加载消息失败: ' + (e as Error).message);
+  }
+  void nextTick(scrollBottom);
+}
+
+/** 点击外部关闭会话列表面板（对齐 Sidebar 的 onDocClick 模式）。 */
+function onDocClick(e: MouseEvent): void {
+  const t = e.target as Node | null;
+  if (t && (t as HTMLElement).closest?.('.fc-session-list, .fc-session-toggle, .fc-new')) return;
+  sessionListOpen.value = false;
+}
+watch(sessionListOpen, (v) => {
+  if (v) document.addEventListener('click', onDocClick);
+  else document.removeEventListener('click', onDocClick);
+});
+onBeforeUnmount(() => document.removeEventListener('click', onDocClick));
+
 // ---- 消息流 ----
 const sessionTitle = computed(() => {
   const s = appState.sessions.find((x) => x.id === appState.sessionId);
@@ -142,11 +227,11 @@ async function send(): Promise<void> {
   if (!id) {
     // 无会话时自动新建（与主对话一致），并同步侧边栏会话列表
     try {
-      const s = await createSession('新会话', appState.model);
+      const s = await createSession('新会话', appState.model, appState.codeCwd || undefined);
       appState.sessionId = s.id;
       id = s.id;
       const list = await listSessions();
-      appState.sessions = list.map((x) => ({ id: x.id, title: x.title, model: x.model, updatedAt: x.updatedAt }));
+      appState.sessions = list.map((x) => ({ id: x.id, title: x.title, model: x.model, cwd: x.cwd, updatedAt: x.updatedAt }));
     } catch (e) {
       pushNotice('新建会话失败: ' + (e as Error).message);
       return;
@@ -154,17 +239,16 @@ async function send(): Promise<void> {
   }
   appState.messages = [...appState.messages, { id: 'local', role: 'user', content: text }];
   draft.value = '';
-  appState.running = true;
   appState.disabled = true;
-  appState.streamingText = '';
+  setSessionRunning(id, true);
+  clearStream(id);
   try {
     await sendChat(id, { message: text, model: appState.model });
   } catch (e) {
     pushNotice('请求失败: ' + (e as Error).message);
   } finally {
-    appState.running = false;
-    appState.disabled = false;
-    appState.streamingText = '';
+    setSessionRunning(id, false);
+    clearStream(id);
     listMessages(id).then((ms) => { appState.messages = ms as never[]; }).catch(() => undefined);
   }
 }
@@ -182,8 +266,42 @@ async function send(): Promise<void> {
     <div v-else class="fc-window" :style="winStyle">
       <div class="fc-head" @pointerdown="onHeadDown">
         <span class="fc-title">💬 对话</span>
-        <span class="fc-sub" :title="sessionTitle">{{ sessionTitle }}</span>
+        <span class="fc-scope" :title="scopeCwd || ''">{{ scopeLabel }}</span>
+        <button
+          class="fc-session-toggle"
+          :title="'当前目录会话列表（' + scopeSessions.length + '）'"
+          @pointerdown.stop
+          @click.stop="sessionListOpen = !sessionListOpen"
+        >
+          <span class="fc-sess-name">{{ sessionTitle }}</span>
+          <span class="fc-sess-caret">▾</span>
+        </button>
+        <button
+          class="fc-new"
+          :disabled="creatingSession || !scopeCwd"
+          :title="scopeCwd ? '新建会话（当前目录）' : '请先在代码编辑器中选择项目/目录'"
+          @pointerdown.stop
+          @click.stop="createNewSession"
+        >＋</button>
         <button class="fc-min" title="收起对话" @click="open = false">—</button>
+      </div>
+      <!-- 会话列表（当前代码目录下的会话，可切换） -->
+      <div v-if="sessionListOpen" class="fc-session-list" @pointerdown.stop>
+        <div class="fc-session-head">{{ scopeLabel }} · {{ scopeSessions.length }} 个会话</div>
+        <div
+          v-for="sess in scopeSessions"
+          :key="sess.id"
+          class="fc-session-item"
+          :class="{ active: sess.id === appState.sessionId }"
+          :title="'cwd: ' + (sess.cwd || '')"
+          @click="switchSession(sess.id)"
+        >
+          <span v-if="appState.runningBySession[sess.id]" class="fc-run-dot" />
+          <span class="fc-sess-t">{{ sess.title || sess.id.slice(0, 16) }}</span>
+          <span class="fc-sess-m">{{ fmtTime(sess.updatedAt) }}</span>
+        </div>
+        <div v-if="scopeSessions.length === 0" class="fc-session-empty">该目录暂无会话，点击 ＋ 新建</div>
+        <div class="fc-session-new" @click="createNewSession">＋ 新建会话</div>
       </div>
       <div ref="listRef" class="fc-list">
         <div v-for="m in appState.messages" :key="m.id" class="fc-row" :class="rowClass(m)" v-html="rowHtml(m)"></div>
@@ -295,6 +413,100 @@ async function send(): Promise<void> {
   border-radius: 6px;
 }
 .fc-min:hover { background: var(--dsh-bg-3); color: var(--dsh-fg-0); }
+
+/* 会话作用域与切换（多会话） */
+.fc-scope {
+  font-size: 11px;
+  color: var(--dsh-accent);
+  background: var(--dsh-accent-soft);
+  border-radius: 4px;
+  padding: 1px 6px;
+  white-space: nowrap;
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 0;
+}
+.fc-session-toggle {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid var(--dsh-border);
+  background: var(--dsh-bg-2);
+  color: var(--dsh-fg-1);
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 11.5px;
+  cursor: pointer;
+  min-width: 0;
+  flex: 1;
+  max-width: 150px;
+  font-family: inherit;
+}
+.fc-session-toggle:hover { border-color: var(--dsh-accent); color: var(--dsh-accent); }
+.fc-sess-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fc-sess-caret { font-size: 9px; color: var(--dsh-fg-2); flex-shrink: 0; }
+.fc-new {
+  border: none;
+  background: none;
+  color: var(--dsh-accent);
+  cursor: pointer;
+  font-size: 15px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+.fc-new:hover { background: var(--dsh-accent-soft); }
+.fc-new:disabled { color: var(--dsh-fg-3); cursor: not-allowed; }
+
+/* 会话列表面板（绝对定位在标题栏下方，覆盖消息区顶部） */
+.fc-session-list {
+  position: absolute;
+  top: 42px;
+  left: 10px;
+  right: 10px;
+  z-index: 20;
+  background: var(--dsh-bg-2);
+  border: 1px solid var(--dsh-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .35);
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 4px;
+}
+.fc-session-head { font-size: 11px; color: var(--dsh-fg-2); padding: 6px 8px 4px; }
+.fc-session-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--dsh-fg-0);
+}
+.fc-session-item:hover { background: var(--dsh-bg-3); }
+.fc-session-item.active { background: var(--dsh-accent-soft); color: var(--dsh-accent); }
+.fc-sess-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fc-sess-m { font-size: 10px; color: var(--dsh-fg-2); flex-shrink: 0; }
+.fc-run-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--dsh-accent);
+  animation: fc-pulse 1s infinite;
+  flex-shrink: 0;
+}
+.fc-session-empty { padding: 10px; text-align: center; color: var(--dsh-fg-2); font-size: 11px; }
+.fc-session-new {
+  padding: 6px 8px;
+  text-align: center;
+  color: var(--dsh-accent);
+  font-size: 12px;
+  cursor: pointer;
+  border-top: 1px solid var(--dsh-border);
+}
+.fc-session-new:hover { background: var(--dsh-accent-soft); }
 
 /* 消息列表 */
 .fc-list {

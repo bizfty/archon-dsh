@@ -87,6 +87,13 @@ public class AgentLoopService {
     /** DAG 计划服务（可空：无计划支持时续轮 prompt 不注入 next-steps）。 */
     private final com.bizfty.anchon.dsh.plan.PlanService dagPlanService;
 
+    private SessionCancellation sessionCancellation; // 可空：无取消支持时跳过检查
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setSessionCancellation(SessionCancellation sessionCancellation) {
+        this.sessionCancellation = sessionCancellation;
+    }
+
     public AgentLoopService(LlmGateway llmGateway,
                             SessionService sessionService,
                             ToolRegistry toolRegistry,
@@ -358,9 +365,11 @@ public class AgentLoopService {
         try {
             return executeInner(request, onToken, onToolEvent);
         } catch (RuntimeException e) {
+            boolean cancelled = e instanceof AgentCancelledException;
             eventBus.publish(request.sessionId(), SessionEventType.TURN_ERROR, Map.of(
                     "message", e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage(),
-                    "executionId", request.executionId() == null ? "" : request.executionId()));
+                    "executionId", request.executionId() == null ? "" : request.executionId(),
+                    "error_type", cancelled ? "cancelled" : "internal"));
             // 对齐官方 goal-round-driver：agent/error → disarm（解除自动续行，需显式 resume 恢复）
             if (goalService != null) {
                 goalService.disarm(request.sessionId().value());
@@ -385,6 +394,9 @@ public class AgentLoopService {
         String executionId = request.executionId() == null ? "run-" + UUID.randomUUID() : request.executionId();
 
         // ---- turn 打开 ----
+        if (sessionCancellation != null) {
+            sessionCancellation.clear(sessionId.value()); // 新 turn 从干净状态开始
+        }
         eventBus.publish(sessionId, SessionEventType.TURN_START,
                 Map.of("executionId", executionId, "model", model));
         sessionService.append(sessionId, MessageRole.USER, request.userMessage(), null, null, null);
@@ -490,6 +502,11 @@ public class AgentLoopService {
         int steps = 0;
         int toolCalls = 0;
         while (true) {
+            // 协作式取消：前端「停止生成」→ cancel() 置位 → 模型/工具间隙停止
+            if (sessionCancellation != null && sessionCancellation.isCancelled(sessionId.value())) {
+                sessionCancellation.clear(sessionId.value());
+                throw new AgentCancelledException("任务已被用户取消");
+            }
             steps++;
             if (steps > effectiveMaxSteps()) {
                 throw new AgentLoopException("超过最大步数上限: " + effectiveMaxSteps());

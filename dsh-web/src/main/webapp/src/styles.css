@@ -24,6 +24,19 @@
   --dsh-warning: #f39c12;
   --dsh-danger: #e74c3c;
   --dsh-code-bg: #14151a;
+  /* 代码高亮 token（One Dark 风） */
+  --hl-comment: #7f8c9b;
+  --hl-keyword: #c678dd;
+  --hl-string: #98c379;
+  --hl-number: #d19a66;
+  --hl-title: #61afef;
+  --hl-builtin: #e06c75;
+  --hl-variable: #e06c75;
+  --hl-meta: #61afef;
+  --hl-tag: #e06c75;
+  --hl-section: #e5c07b;
+  --hl-addition: #98c379;
+  --hl-deletion: #e06c75;
 }
 
 /* ---------- 深色 · Aurora (极光绿) ---------- */
@@ -35,6 +48,19 @@
   --dsh-border: #2a3d32; --dsh-border-strong: #36503f;
   --dsh-success: #2ecc71; --dsh-warning: #f1c40f; --dsh-danger: #e74c3c;
   --dsh-code-bg: #0d1712;
+  /* 代码高亮 token（森林绿 + 紫点缀） */
+  --hl-comment: #5f7f6d;
+  --hl-keyword: #b48ead;
+  --hl-string: #8fd68a;
+  --hl-number: #d9b26f;
+  --hl-title: #6fd3d3;
+  --hl-builtin: #e8907d;
+  --hl-variable: #e8907d;
+  --hl-meta: #6fd3d3;
+  --hl-tag: #e8907d;
+  --hl-section: #d9b26f;
+  --hl-addition: #8fd68a;
+  --hl-deletion: #e8907d;
 }
 
 /* ---------- 深色 · Ember (余烬橙红) ---------- */
@@ -46,6 +72,19 @@
   --dsh-border: #3d3029; --dsh-border-strong: #4d3c33;
   --dsh-success: #27ae60; --dsh-warning: #f39c12; --dsh-danger: #e74c3c;
   --dsh-code-bg: #1a1410;
+  /* 代码高亮 token（暖琥珀风） */
+  --hl-comment: #8a7563;
+  --hl-keyword: #d98a6f;
+  --hl-string: #a8a85a;
+  --hl-number: #e8a05e;
+  --hl-title: #f2c879;
+  --hl-builtin: #e0704f;
+  --hl-variable: #e0704f;
+  --hl-meta: #f2c879;
+  --hl-tag: #e0704f;
+  --hl-section: #f2c879;
+  --hl-addition: #8fae5a;
+  --hl-deletion: #e0704f;
 }
 
 /* ---------- 深色 · Royal (皇室紫) ---------- */
@@ -57,6 +96,19 @@
   --dsh-border: #332d4a; --dsh-border-strong: #423a5e;
   --dsh-success: #2ecc71; --dsh-warning: #f39c12; --dsh-danger: #e74c3c;
   --dsh-code-bg: #120f1f;
+  /* 代码高亮 token（Tokyo Night 风） */
+  --hl-comment: #7a71a5;
+  --hl-keyword: #bb9af7;
+  --hl-string: #9ece6a;
+  --hl-number: #ff9e64;
+  --hl-title: #7aa2f7;
+  --hl-builtin: #f7768e;
+  --hl-variable: #f7768e;
+  --hl-meta: #7aa2f7;
+  --hl-tag: #f7768e;
+  --hl-section: #e0af68;
+  --hl-addition: #9ece6a;
+  --hl-deletion: #f7768e;
 }
 
 /* ---------- 浅色 · Cloud (云蓝) ---------- */
@@ -68,6 +120,19 @@
   --dsh-border: #dde3ec; --dsh-border-strong: #c5cdd9;
   --dsh-success: #16a34a; --dsh-warning: #d97706; --dsh-danger: #dc2626;
   --dsh-code-bg: #f1f3f8;
+  /* 代码高亮 token（GitHub Light 风） */
+  --hl-comment: #8a919e;
+  --hl-keyword: #cf222e;
+  --hl-string: #0a3069;
+  --hl-number: #0550ae;
+  --hl-title: #8250df;
+  --hl-builtin: #953800;
+  --hl-variable: #e36209;
+  --hl-meta: #8250df;
+  --hl-tag: #116329;
+  --hl-section: #0550ae;
+  --hl-addition: #116329;
+  --hl-deletion: #cf222e;
 }
 
 /* ---------- 浅色 · Paper (纸白) ---------- */
@@ -79,6 +144,19 @@
   --dsh-border: #e3dccb; --dsh-border-strong: #cdc4ac;
   --dsh-success: #15803d; --dsh-warning: #b45309; --dsh-danger: #b91c1c;
   --dsh-code-bg: #f3ecdd;
+  /* 代码高亮 token（暖纸色风） */
+  --hl-comment: #9c8f6e;
+  --hl-keyword: #a04020;
+  --hl-string: #5a6b2a;
+  --hl-number: #8a5a00;
+  --hl-title: #2d4f8f;
+  --hl-builtin: #9a3b1f;
+  --hl-variable: #9a3b1f;
+  --hl-meta: #2d4f8f;
+  --hl-tag: #7a2d1a;
+  --hl-section: #8a5a00;
+  --hl-addition: #5a6b2a;
+  --hl-deletion: #a04020;
 }
 
 /* ---------- 全局基础 ---------- */
@@ -128,8 +206,63 @@ html, body, #app {
 :root .el-empty__description p { color: var(--dsh-fg-2); }
 :root .el-menu { background-color: var(--dsh-bg-0); }
 
-/* highlight.js 代码块在浅色主题下需要覆盖 */
-:root .hljs { background: var(--dsh-code-bg) !important; }
+/* ================================================================
+   highlight.js 代码高亮配色（随 6 套皮肤联动）
+   token 颜色由各主题块中的 --hl-* 变量定义；背景沿用 --dsh-code-bg
+   ================================================================ */
+:root .hljs {
+  background: var(--dsh-code-bg) !important;
+  color: var(--dsh-fg-0);
+}
+
+.hljs-comment,
+.hljs-quote { color: var(--hl-comment); font-style: italic; }
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-doctag { color: var(--hl-keyword); }
+
+.hljs-string,
+.hljs-regexp,
+.hljs-selector-attr,
+.hljs-selector-pseudo { color: var(--hl-string); }
+
+.hljs-number,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-link,
+.hljs-attr,
+.hljs-attribute { color: var(--hl-number); }
+
+.hljs-title,
+.hljs-title.function_,
+.hljs-function .hljs-title { color: var(--hl-title); }
+
+.hljs-built_in,
+.hljs-type,
+.hljs-class .hljs-title { color: var(--hl-builtin); }
+
+.hljs-variable,
+.hljs-template-variable,
+.hljs-params { color: var(--hl-variable); }
+
+.hljs-meta { color: var(--hl-meta); }
+
+.hljs-tag,
+.hljs-name,
+.hljs-selector-id,
+.hljs-selector-class { color: var(--hl-tag); }
+
+.hljs-section { color: var(--hl-section); font-weight: 600; }
+.hljs-addition { color: var(--hl-addition); }
+.hljs-deletion { color: var(--hl-deletion); }
+.hljs-emphasis { font-style: italic; }
+.hljs-strong { font-weight: 700; }
+
+.hljs-operator,
+.hljs-punctuation { color: var(--dsh-fg-2); }
+.hljs-subst { color: var(--dsh-fg-1); }
 
 /* 自定义滚动条 */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
@@ -167,7 +300,6 @@ html, body, #app {
 .md-doc h1 { font-size: 1.6em; border-bottom: 1px solid var(--dsh-border); padding-bottom: .3em; }
 .md-doc h2 { font-size: 1.35em; border-bottom: 1px solid var(--dsh-border); padding-bottom: .25em; }
 .md-doc h3 { font-size: 1.18em; }
-.md-doc h4 { font-size: 1.05em; }
 .md-doc p { margin: 0.6em 0; }
 .md-doc a { color: var(--dsh-accent); text-decoration: underline; }
 .md-doc a:hover { opacity: .85; }

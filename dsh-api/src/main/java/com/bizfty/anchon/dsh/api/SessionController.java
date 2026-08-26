@@ -1,7 +1,9 @@
 package com.bizfty.anchon.dsh.api;
 
+import com.bizfty.anchon.dsh.agent.AgentCancelledException;
 import com.bizfty.anchon.dsh.agent.AgentLoopService;
 import com.bizfty.anchon.dsh.agent.AgentRunRequest;
+import com.bizfty.anchon.dsh.agent.SessionCancellation;
 import com.bizfty.anchon.dsh.agent.AgentRunResult;
 import com.bizfty.anchon.dsh.api.dto.ChatRequest;
 import com.bizfty.anchon.dsh.api.dto.MessageDto;
@@ -60,11 +62,13 @@ public class SessionController {
     private final SseExecutionStore executionStore;
     private final SubagentRegistry subagentRegistry;
     private final SubagentRunner subagentRunner;
+    private final SessionCancellation sessionCancellation;
 
     public SessionController(SessionService sessionService, AgentLoopService agentLoopService,
                              SessionEventBus eventBus, FeedbackService feedbackService,
                              SseExecutionStore executionStore,
-                             SubagentRegistry subagentRegistry, SubagentRunner subagentRunner) {
+                             SubagentRegistry subagentRegistry, SubagentRunner subagentRunner,
+                             SessionCancellation sessionCancellation) {
         this.sessionService = sessionService;
         this.agentLoopService = agentLoopService;
         this.eventBus = eventBus;
@@ -72,6 +76,7 @@ public class SessionController {
         this.executionStore = executionStore;
         this.subagentRegistry = subagentRegistry;
         this.subagentRunner = subagentRunner;
+        this.sessionCancellation = sessionCancellation;
     }
 
     @GetMapping
@@ -173,6 +178,19 @@ public class SessionController {
                 .build();
         AgentRunResult result = agentLoopService.run(runRequest);
         return ResponseEntity.ok(MessageDto.simple("msg-" + UUID.randomUUID(), "assistant", result.content()));
+    }
+
+    /**
+     * 取消某会话的当前执行 — 前端「停止生成」按钮的端点。
+     * <p>
+     * 协作式取消：置位会话级取消标志，AgentLoop 在 step 循环检查并在
+     * 模型/工具间隙停止（不中断正在执行的工具）。随后该 turn 以
+     * TURN_ERROR(error_type=cancelled) / SSE error(error_type=cancelled) 收尾。
+     */
+    @PostMapping("/{sessionId}/chat/cancel")
+    public ResponseEntity<Map<String, Object>> cancelChat(@PathVariable String sessionId) {
+        sessionCancellation.cancel(sessionId);
+        return ResponseEntity.ok(Map.of("sessionId", sessionId, "cancelled", true));
     }
 
     /**
@@ -278,6 +296,17 @@ public class SessionController {
                             "error_type", "auth_failed",
                             "message", "LLM 认证失败，请检查 API Key 是否有效",
                             "detail", e.getMessage()));
+                    emitter.complete();
+                } catch (Exception ignored) {
+                    emitter.completeWithError(e);
+                }
+            } catch (AgentCancelledException e) {
+                // 用户「停止生成」：正常取消，不是错误
+                execution.finish();
+                try {
+                    sendSse(emitter, "error", Map.of(
+                            "error_type", "cancelled",
+                            "message", e.getMessage() == null ? "任务已取消" : e.getMessage()));
                     emitter.complete();
                 } catch (Exception ignored) {
                     emitter.completeWithError(e);

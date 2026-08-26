@@ -74,6 +74,8 @@ class CodeControllerTest {
         List<Map<String, Object>> projects = controller.listProjects(CodeController.SCENE_CODER);
         assertEquals(1, projects.size());
         assertEquals("alpha", projects.get(0).get("name"));
+        assertEquals(coderRoot.toAbsolutePath().normalize().toString(), projects.get(0).get("root"),
+                "项目应携带 coder 根目录绝对路径（供前端拼工作区路径）");
     }
 
     @Test
@@ -294,6 +296,8 @@ class CodeControllerTest {
         assertEquals(1, projects.size());
         assertEquals(CodeController.SELF_PROJECT, projects.get(0).get("name"));
         assertEquals(selfRoot.getFileName().toString(), projects.get(0).get("displayName"));
+        assertEquals(selfRoot.toAbsolutePath().normalize().toString(), projects.get(0).get("root"),
+                "self 项目应携带源码根绝对路径");
     }
 
     @Test

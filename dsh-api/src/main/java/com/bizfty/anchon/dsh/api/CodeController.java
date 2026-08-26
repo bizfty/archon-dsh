@@ -194,6 +194,7 @@ public class CodeController {
             @RequestParam(defaultValue = SCENE_CODER) String scene) throws IOException {
         Path root = root(scene);
         Files.createDirectories(root);
+        String rootAbs = root.toAbsolutePath().normalize().toString();
         List<Map<String, Object>> out = new ArrayList<>();
         if (isSelf(scene)) {
             Map<String, Object> m = new LinkedHashMap<>();
@@ -201,6 +202,7 @@ public class CodeController {
             m.put("displayName", root.getFileName().toString());
             m.put("fileCount", countFiles(root, 0));
             m.put("projectType", detectProjectType(root));
+            m.put("root", rootAbs);
             out.add(m);
             return out;
         }
@@ -213,6 +215,7 @@ public class CodeController {
                 m.put("name", name);
                 m.put("fileCount", countFiles(p, 0));
                 m.put("projectType", detectProjectType(p));
+                m.put("root", rootAbs);
                 out.add(m);
             }
         }

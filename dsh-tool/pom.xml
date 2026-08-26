@@ -18,6 +18,10 @@
             <artifactId>dsh-core</artifactId>
         </dependency>
         <dependency>
+            <groupId>com.bizfty.anchon</groupId>
+            <artifactId>dsh-util</artifactId>
+        </dependency>
+        <dependency>
             <groupId>org.springframework</groupId>
             <artifactId>spring-context</artifactId>
         </dependency>

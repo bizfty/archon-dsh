@@ -5,7 +5,8 @@
 //   panel=1 completed · 2 in progress · 1 pending
 //   item=completed 梳理需求 ...）
 import { computed } from 'vue';
-import { appState, type TodosView } from '../store';
+import { appState } from '../store';
+import type { TodosView } from '../api';
 
 const props = defineProps<{ todos: TodosView }>();
 

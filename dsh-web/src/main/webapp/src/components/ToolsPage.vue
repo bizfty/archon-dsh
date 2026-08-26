@@ -190,6 +190,7 @@ onBeforeUnmount(() => stopJobsPolling());
         :scene="props.view === 'self' ? 'self' : 'coder'"
         embedded
         @close="emit('back')"
+        @session-opened="chatRef?.openChat()"
       />
       <!-- 浮动对话窗：代码开发 / 自我完善页内嵌，替代“返回对话” -->
       <FloatingChat v-if="isCoder" ref="chatRef" />

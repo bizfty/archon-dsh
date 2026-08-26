@@ -21,8 +21,8 @@ public class UserQuestionService {
         this.defaultTimeoutMs = defaultTimeoutMs;
     }
 
-    public String ask(String question, java.util.List<String> options, boolean multiSelect) {
-        UserQuestion q = UserQuestion.of("q_" + UUID.randomUUID(), question, options, multiSelect);
+    public String ask(String sessionId, String question, java.util.List<String> options, boolean multiSelect) {
+        UserQuestion q = UserQuestion.of("q_" + UUID.randomUUID(), sessionId, question, options, multiSelect);
         var list = providers.orderedStream().toList();
         if (list.isEmpty()) {
             throw new NoAnswerProviderException("无问答应答者");

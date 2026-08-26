@@ -1,16 +1,26 @@
 <script setup lang="ts">
 // CodeView.vue — coder 场景：在线代码开发工具（项目 + 文件树 + 编辑器）。
-// 轻量自包含：不引入 Monaco，textarea 编辑 + highlight.js 预览切换。
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
+// 编辑模式用 Monaco Editor（editor.main：完整 contrib（suggest/find/folding/括号匹配…）+ Monarch 高亮 +
+// 官方语言服务智能提示（ts/js/json/css/less/scss/html）+ 无语言服务语言的关键词/片段补全；
+// 语言本体与 worker 按需懒加载）；预览模式用 highlight.js 渲染。
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue';
 import hljs from 'highlight.js';
 import { renderMarkdown } from '../render';
+import { appState, connectWorkspaceByPath, pushNotice } from '../store';
 import {
   listCodeProjects, createCodeProject, getCodeTree, readCodeFile,
   saveCodeFile, createCodeFile, deleteCodeFile,
   type CodeProject, type CodeTreeNode, type CodeFileContent,
 } from '../api';
+import type * as MonacoNS from 'monaco-editor';
+// Vite worker 导入：editor 核心 + 4 个官方语言服务（智能提示/校验/格式化），各自独立 worker chunk
+import editorWorker from 'monaco-editor/editor/editor.worker?worker';
+import jsonWorker from 'monaco-editor/language/json/json.worker?worker';
+import cssWorker from 'monaco-editor/language/css/css.worker?worker';
+import htmlWorker from 'monaco-editor/language/html/html.worker?worker';
+import tsWorker from 'monaco-editor/language/typescript/ts.worker?worker';
 
-const emit = defineEmits<{ (e: 'close'): void }>();
+const emit = defineEmits<{ (e: 'close'): void; (e: 'session-opened'): void }>();
 
 // ---- 场景 ----
 // scene: 'coder' = 用户工作区（默认根 data/workspace/coder/project 下选择项目）；
@@ -20,10 +30,24 @@ const isSelf = computed(() => props.scene === 'self');
 /** self 场景固定 project 名（后端忽略 project 参数，落到源码根）。 */
 const SELF_PROJECT = '.';
 const sceneLabel = computed(() => (isSelf.value ? '🧬 自我完善 · archon-dsh 源码' : '💻 代码开发'));
+/** 当前目录绝对路径（用于「在此目录开会话」）：coder = 根/project；self = 源码根。 */
+const currentWorkspacePath = computed(() => {
+  const root = projects.value.find(p => p.name === currentProject.value)?.root;
+  if (!root) return '';
+  if (isSelf.value) return root;
+  return root.replace(/\/+$/, '') + '/' + currentProject.value;
+});
 
 // ---- 状态 ----
 const projects = ref<CodeProject[]>([]);
 const currentProject = ref('');
+
+/** 当前目录变化 → 同步到全局 codeCwd（浮动对话会话列表/新建会话的作用域）。
+ *  注意：必须在 projects/currentProject 定义之后注册 watch（Vue watch 创建时
+ *  立即 effect.run() 求值 getter，前置会触发 TDZ ReferenceError）。 */
+watch(currentWorkspacePath, (p) => {
+  appState.codeCwd = p || null;
+});
 const treeRoot = ref<CodeTreeNode | null>(null);
 const flatTree = ref<FlatNode[]>([]);
 const currentPath = ref('');
@@ -42,6 +66,7 @@ const newProjectDialog = ref(false);
 const newProjectName = ref('');
 const newFileDialog = ref(false);
 const newFilePath = ref('');
+const sessionBusy = ref(false);
 
 interface FlatNode {
   name: string;
@@ -56,8 +81,9 @@ interface FlatNode {
   pathLabel?: string;
 }
 
-// ---- 语言映射（扩展名 → highlight.js 语言）----
-const LANG_BY_EXT: Record<string, string> = {
+// ---- 语言映射 ----
+/** 预览模式：扩展名 → highlight.js 语言 id。 */
+const HLJS_LANG: Record<string, string> = {
   java: 'java', kt: 'kotlin', groovy: 'groovy', gradle: 'groovy',
   py: 'python', js: 'javascript', jsx: 'jsx', mjs: 'javascript',
   ts: 'typescript', tsx: 'tsx', vue: 'xml', svelte: 'html',
@@ -68,12 +94,31 @@ const LANG_BY_EXT: Record<string, string> = {
   rb: 'ruby', php: 'php', properties: 'properties', ini: 'ini',
   toml: 'ini', dockerfile: 'dockerfile', txt: 'plaintext', log: 'plaintext',
 };
+/** 编辑模式：扩展名 → Monaco 语言 id（只引用已注册的 monarch 语言；c→cpp 近似、bash→shell、properties→ini）。 */
+const MONACO_LANG: Record<string, string> = {
+  java: 'java', kt: 'kotlin', groovy: 'groovy', gradle: 'groovy',
+  py: 'python', js: 'javascript', jsx: 'javascript', mjs: 'javascript',
+  ts: 'typescript', tsx: 'typescript', vue: 'html', svelte: 'html',
+  html: 'html', htm: 'html', css: 'css', scss: 'scss', less: 'less',
+  json: 'json', xml: 'xml', yaml: 'yaml', yml: 'yaml',
+  md: 'markdown', markdown: 'markdown', sh: 'shell', bash: 'shell',
+  sql: 'sql', go: 'go', rs: 'rust', c: 'cpp', h: 'cpp', cpp: 'cpp', hpp: 'cpp',
+  rb: 'ruby', php: 'php', properties: 'ini', ini: 'ini',
+  toml: 'ini', dockerfile: 'dockerfile', txt: 'plaintext', log: 'plaintext',
+};
 
 function langFor(path: string): string {
   const base = path.split('/').pop() || '';
   if (base.toLowerCase() === 'dockerfile') return 'dockerfile';
   const ext = base.includes('.') ? base.split('.').pop()!.toLowerCase() : '';
-  return LANG_BY_EXT[ext] || 'plaintext';
+  return HLJS_LANG[ext] || 'plaintext';
+}
+
+function monacoLangFor(path: string): string {
+  const base = path.split('/').pop() || '';
+  if (base.toLowerCase() === 'dockerfile') return 'dockerfile';
+  const ext = base.includes('.') ? base.split('.').pop()!.toLowerCase() : '';
+  return MONACO_LANG[ext] || 'plaintext';
 }
 
 /** 扩展名判断：.md / .markdown → 渲染为 markdown 文档。 */
@@ -218,27 +263,322 @@ function rebuildFlat() {
   flatTree.value = out;
 }
 
-// ---- 编辑 ----
-function onEdit() {
-  dirty.value = true;
-  currentLines.value = currentContent.value.split('\n').length;
-  statusText.value = '编辑中…';
+// ---- Monaco 编辑器（编辑模式） ----
+// editor.main 完整内核（全部 contrib + 语言注册，语言本体惰性 chunk）；语言服务 worker 按需加载。
+const monacoHost = ref<HTMLDivElement | null>(null);
+let monaco: typeof import('monaco-editor') | null = null;
+let editor: any = null;
+let monacoLoading: Promise<void> | null = null;
+
+
+/** 官方语言服务（智能提示/校验/格式化）：语言需已注册（definitions 或自定义 monarch），服务经 onLanguage 挂载。 */
+const LANG_SERVICE_MODULES: Array<() => Promise<unknown>> = [
+  () => import('monaco-editor/language/typescript/monaco.contribution'), // ts / js（TS 语言服务）
+  () => import('monaco-editor/language/json/monaco.contribution'),       // json（JSON 补全/校验）
+  () => import('monaco-editor/language/css/monaco.contribution'),        // css / less / scss
+  () => import('monaco-editor/language/html/monaco.contribution'),       // html
+];
+
+/** Monaco 环境：worker 分发（label 为语言 id；editor 为通用兜底）。 */
+function setupMonacoEnvironment() {
+  if ((self as any).MonacoEnvironment) return;
+  (self as any).MonacoEnvironment = {
+    getWorker(_workerId: string, label: string) {
+      if (label === 'json') return new jsonWorker();
+      if (label === 'css' || label === 'scss' || label === 'less') return new cssWorker();
+      if (label === 'html' || label === 'handlebars' || label === 'razor') return new htmlWorker();
+      if (label === 'typescript' || label === 'javascript') return new tsWorker();
+      return new editorWorker();
+    },
+  };
 }
 
+function loadMonaco(): Promise<void> {
+  if (monaco) return Promise.resolve();
+  if (monacoLoading) return monacoLoading;
+  monacoLoading = (async () => {
+    setupMonacoEnvironment();
+    // editor.main：完整编辑器（含 suggest/find/folding 等全部 contrib）+ 全部语言注册（register.js 惰性 loader，语言本体按需 chunk）
+    const m = (await import('monaco-editor/editor/editor.main')) as typeof import('monaco-editor');
+    // 并行加载官方语言服务（ts/js/json/css/less/scss/html 智能提示/校验/格式化）
+    await Promise.all(LANG_SERVICE_MODULES.map((fn) => fn()));
+    registerCustomLanguages(m);
+    registerKeywordCompletions(m);
+    monaco = m;
+    applyMonacoTheme();
+  })().catch((e: any) => {
+    monacoLoading = null;
+    notice.value = '编辑器内核加载失败: ' + (e?.message || e);
+    throw e;
+  });
+  return monacoLoading;
+}
+
+/** 基础语言清单之外的补充：json（避开语言服务的 worker 依赖）与 groovy（Monaco 无内置）。 */
+function registerCustomLanguages(m: typeof MonacoNS) {
+  // Groovy（Gradle 脚本）：关键字/注释/字符串/注解/数字
+  m.languages.register({ id: 'groovy', extensions: ['.groovy', '.gradle'], aliases: ['Groovy', 'groovy'] });
+  m.languages.setMonarchTokensProvider('groovy', {
+    tokenPostfix: '.groovy',
+    keywords: [
+      'def', 'class', 'interface', 'enum', 'trait', 'import', 'package', 'return',
+      'if', 'else', 'for', 'while', 'switch', 'case', 'default', 'break', 'continue',
+      'new', 'this', 'super', 'null', 'true', 'false', 'void', 'static', 'final',
+      'public', 'private', 'protected', 'extends', 'implements', 'in', 'as', 'assert',
+      'try', 'catch', 'finally', 'throw', 'throws', 'instanceof', 'synchronized',
+    ],
+    tokenizer: {
+      root: [
+        [/\/\/.*$/, 'comment'],
+        [/\/\*/, 'comment', '@comment'],
+        [/'[^']*'/, 'string'],
+        [/"[^"]*"/, 'string'],
+        [/@[a-zA-Z_]\w*/, 'annotation'],
+        [/\b\d+(\.\d+)?\b/, 'number'],
+        [/[a-zA-Z_]\w*/, { cases: { '@keywords': 'keyword', '@default': 'identifier' } }],
+      ],
+      comment: [
+        [/\*\//, 'comment', '@pop'],
+        [/./, 'comment'],
+      ],
+    },
+  });
+}
+
+/** 无官方语言服务语言的轻量补全：关键词 + 常用片段（纯主线程，不依赖 worker）。 */
+const KEYWORD_SUGGESTIONS: Record<string, { keywords: string[]; snippets?: Array<{ label: string; insertText: string; documentation?: string }> }> = {
+  java: {
+    keywords: ['abstract','assert','boolean','break','byte','case','catch','char','class','const','continue','default','do','double','else','enum','extends','final','finally','float','for','goto','if','implements','import','instanceof','int','interface','long','native','new','package','private','protected','public','return','short','static','strictfp','super','switch','synchronized','this','throw','throws','transient','try','void','volatile','while','true','false','null'],
+    snippets: [
+      { label: 'psvm', insertText: 'public static void main(String[] args) {\n\t${1}\n}', documentation: 'main 方法' },
+      { label: 'sout', insertText: 'System.out.println(${1:expr});', documentation: '控制台输出' },
+      { label: 'class', insertText: 'public class ${1:Name} {\n\t${2}\n}', documentation: '类声明' },
+      { label: 'method', insertText: 'public ${1:void} ${2:name}(${3}) {\n\t${4}\n}', documentation: '方法声明' },
+    ],
+  },
+  kotlin: {
+    keywords: ['as','as?','break','class','continue','do','else','false','for','fun','if','in','interface','is','null','object','package','return','super','this','throw','true','try','typealias','typeof','val','var','when','while','private','public','protected','internal','override','abstract','open','sealed','data','companion','init','constructor','import'],
+    snippets: [
+      { label: 'main', insertText: 'fun main(args: Array<String>) {\n\t${1}\n}', documentation: '入口函数' },
+      { label: 'class', insertText: 'class ${1:Name} {\n\t${2}\n}', documentation: '类声明' },
+    ],
+  },
+  groovy: {
+    keywords: ['def','class','interface','enum','trait','import','package','return','if','else','for','while','switch','case','default','break','continue','new','this','super','null','true','false','void','static','final','public','private','protected','extends','implements','in','as','assert','try','catch','finally','throw','throws','instanceof','synchronized'],
+    snippets: [
+      { label: 'plugins', insertText: 'plugins {\n\tid \'${1:java}\'\n}', documentation: 'Gradle plugins 块' },
+      { label: 'dependencies', insertText: 'dependencies {\n\t${1:implementation \'group:artifact:version\'}\n}', documentation: 'Gradle dependencies 块' },
+      { label: 'repositories', insertText: 'repositories {\n\tmavenCentral()\n}', documentation: 'Gradle repositories 块' },
+    ],
+  },
+  python: {
+    keywords: ['and','as','assert','async','await','break','class','continue','def','del','elif','else','except','False','finally','for','from','global','if','import','in','is','lambda','None','nonlocal','not','or','pass','raise','return','True','try','while','with','yield'],
+    snippets: [
+      { label: 'main', insertText: 'def main():\n\t${1:pass}\n\n\nif __name__ == \'__main__\':\n\tmain()', documentation: '主入口' },
+      { label: 'class', insertText: 'class ${1:Name}:\n\tdef __init__(self):\n\t\t${2:pass}', documentation: '类声明' },
+    ],
+  },
+  go: {
+    keywords: ['break','case','chan','const','continue','default','defer','else','fallthrough','for','func','go','goto','if','import','interface','map','package','range','return','select','struct','switch','type','var'],
+    snippets: [
+      { label: 'main', insertText: 'func main() {\n\t${1}\n}', documentation: '主函数' },
+      { label: 'iferr', insertText: 'if err != nil {\n\t${1:return err}\n}', documentation: '错误检查' },
+    ],
+  },
+  rust: {
+    keywords: ['as','async','await','break','const','continue','crate','dyn','else','enum','extern','false','fn','for','if','impl','in','let','loop','match','mod','move','mut','pub','ref','return','self','Self','static','struct','super','trait','true','type','unsafe','use','where','while'],
+    snippets: [
+      { label: 'main', insertText: 'fn main() {\n\t${1}\n}', documentation: '主函数' },
+    ],
+  },
+  sql: {
+    keywords: ['select','from','where','insert','into','values','update','set','delete','create','table','index','view','drop','alter','add','column','primary','key','foreign','references','join','inner','left','right','full','outer','on','group','by','order','having','limit','offset','and','or','not','null','default','unique','as','distinct','count','sum','avg','min','max','between','like','in','exists','union','all','case','when','then','else','end'],
+    snippets: [
+      { label: 'select', insertText: 'SELECT ${1:*} FROM ${2:table} WHERE ${3:cond};', documentation: '查询' },
+      { label: 'create_table', insertText: 'CREATE TABLE ${1:name} (\n\t${2:id} ${3:INT} PRIMARY KEY\n);', documentation: '建表' },
+    ],
+  },
+  yaml: { keywords: ['true','false','null','yes','no','on','off'] },
+  shell: {
+    keywords: ['if','then','else','elif','fi','for','do','done','while','until','case','esac','function','return','local','export','source','echo','cd','ls','pwd','mkdir','rm','cp','mv','grep','sed','awk','cat','chmod','sudo','exit','true','false'],
+    snippets: [
+      { label: 'if', insertText: 'if ${1:cond}; then\n\t${2}\nfi', documentation: 'if 分支' },
+      { label: 'for', insertText: 'for ${1:item} in ${2:list}; do\n\t${3}\ndone', documentation: 'for 循环' },
+    ],
+  },
+};
+
+/** 为无官方语言服务的语言注册关键词/片段补全（Ctrl+Space 或输入触发）。 */
+function registerKeywordCompletions(m: typeof MonacoNS) {
+  for (const [lang, cfg] of Object.entries(KEYWORD_SUGGESTIONS)) {
+    m.languages.registerCompletionItemProvider(lang, {
+      provideCompletionItems(model, position) {
+        const word = model.getWordUntilPosition(position);
+        const range = { startLineNumber: position.lineNumber, startColumn: word.startColumn, endLineNumber: position.lineNumber, endColumn: word.endColumn };
+        const snips = (cfg.snippets || []).map((s) => ({
+          label: s.label,
+          kind: m.languages.CompletionItemKind.Snippet,
+          insertText: s.insertText,
+          insertTextRules: m.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+          documentation: s.documentation,
+          range,
+        }));
+        const kws = cfg.keywords.map((k) => ({
+          label: k,
+          kind: m.languages.CompletionItemKind.Keyword,
+          insertText: k,
+          range,
+        }));
+        return { suggestions: [...snips, ...kws] };
+      },
+    });
+  }
+}
+
+/** 6 套皮肤 → Monaco 主题基座（与 styles.css 的 data-theme 对应）。 */
+const THEME_META: Record<string, { base: 'vs' | 'vs-dark'; mode: 'dark' | 'light' }> = {
+  midnight: { base: 'vs-dark', mode: 'dark' },
+  aurora:   { base: 'vs-dark', mode: 'dark' },
+  ember:    { base: 'vs-dark', mode: 'dark' },
+  royal:    { base: 'vs-dark', mode: 'dark' },
+  cloud:    { base: 'vs', mode: 'light' },
+  paper:    { base: 'vs', mode: 'light' },
+};
+
+/** 当前皮肤名（未命中回退 midnight）。 */
+function currentThemeName(): string {
+  const t = document.documentElement.getAttribute('data-theme') || 'midnight';
+  return THEME_META[t] ? t : 'midnight';
+}
+
+/** 按当前皮肤（读取 styles.css 的 --dsh-* 与 --hl-* 变量）定义并应用 Monaco 主题。 */
+function applyMonacoTheme() {
+  if (!monaco) return;
+  const name = currentThemeName();
+  const meta = THEME_META[name];
+  const cs = getComputedStyle(document.documentElement);
+  const v = (key: string, fallback: string) => cs.getPropertyValue(key).trim() || fallback;
+  const bg0 = v('--dsh-bg-0', meta.mode === 'dark' ? '#1e1e1e' : '#ffffff');
+  const bg1 = v('--dsh-bg-1', bg0);
+  const fg0 = v('--dsh-fg-0', meta.mode === 'dark' ? '#d4d4d4' : '#000000');
+  const fg2 = v('--dsh-fg-2', fg0);
+  const fg3 = v('--dsh-fg-3', fg2);
+  const accent = v('--dsh-accent', meta.mode === 'dark' ? '#4f7cff' : '#2e6dd6');
+  const border = v('--dsh-border', fg3);
+  const rules: Array<{ token: string; foreground: string }> = [];
+  const add = (token: string, color: string) => { if (color) rules.push({ token, foreground: color }); };
+  add('comment', v('--hl-comment', ''));
+  add('keyword', v('--hl-keyword', ''));
+  add('string', v('--hl-string', ''));
+  add('number', v('--hl-number', ''));
+  add('type', v('--hl-title', ''));
+  add('type.identifier', v('--hl-title', ''));
+  add('class', v('--hl-title', ''));
+  add('class.identifier', v('--hl-title', ''));
+  add('builtin', v('--hl-builtin', ''));
+  add('builtin.identifier', v('--hl-builtin', ''));
+  add('variable', v('--hl-variable', ''));
+  add('meta', v('--hl-meta', ''));
+  add('tag', v('--hl-tag', ''));
+  add('annotation', v('--hl-meta', ''));
+  add('function', v('--hl-builtin', ''));
+  add('function.identifier', v('--hl-builtin', ''));
+  add('section', v('--hl-section', ''));
+  add('string.escape', v('--hl-title', ''));
+  add('regexp', v('--hl-string', ''));
+  rules.push({ token: 'delimiter', foreground: fg2 });
+  rules.push({ token: 'operator', foreground: fg2 });
+  monaco.editor.defineTheme('dsh-' + name, {
+    base: meta.base,
+    inherit: true,
+    rules,
+    colors: {
+      'editor.background': bg0,
+      'editor.foreground': fg0,
+      'editor.lineHighlightBackground': bg1,
+      'editor.lineHighlightBorder': '#00000000',
+      'editor.selectionBackground': meta.mode === 'dark' ? '#264f78' : '#add6ff',
+      'editor.inactiveSelectionBackground': meta.mode === 'dark' ? '#3a3d41' : '#e5ebf1',
+      'editorCursor.foreground': accent,
+      'editorLineNumber.foreground': fg3,
+      'editorLineNumber.activeForeground': fg0,
+      'editorIndentGuide.background1': border,
+      'editorIndentGuide.activeBackground1': fg2,
+      'editorGutter.background': bg0,
+      'editorWidget.background': bg1,
+      'editorWidget.border': border,
+      'editorSuggestWidget.background': bg1,
+      'editorSuggestWidget.border': border,
+      'editorSuggestWidget.selectedBackground': meta.mode === 'dark' ? '#04395e' : '#cfe8ff',
+      'editorHoverWidget.background': bg1,
+      'editorHoverWidget.border': border,
+      'editorOverviewRuler.border': '#00000000',
+      'scrollbarSlider.background': fg3 + '66',
+      'scrollbarSlider.hoverBackground': fg3 + 'aa',
+      'editorBracketMatch.background': '#00000000',
+      'editorBracketMatch.border': accent,
+      'editorWhitespace.foreground': fg3,
+    },
+  });
+  monaco.editor.setTheme('dsh-' + name);
+}
+
+/** 创建/复用 Monaco 实例（host 必须可见）。 */
+function ensureEditor() {
+  if (editor || !monaco || !monacoHost.value) return;
+  editor = monaco.editor.create(monacoHost.value, {
+    value: currentContent.value,
+    language: monacoLangFor(currentPath.value),
+    theme: 'dsh-' + currentThemeName(),
+    automaticLayout: true,
+    fontSize: 13,
+    lineHeight: 20,
+    fontFamily: "ui-monospace, 'JetBrains Mono', Consolas, monospace",
+    tabSize: 2,
+    insertSpaces: true,
+    minimap: { enabled: false },
+    scrollBeyondLastLine: false,
+    lineNumbersMinChars: 3,
+    folding: true,
+    overviewRulerBorder: false,
+    scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10 },
+    padding: { top: 8 },
+    renderLineHighlight: 'line',
+  });
+  // 编辑内容 → currentContent / dirty / 状态栏
+  editor.onDidChangeModelContent(() => {
+    const v = editor.getValue();
+    if (v !== currentContent.value) {
+      currentContent.value = v;
+      currentLines.value = v.split('\n').length;
+      dirty.value = true;
+      statusText.value = '编辑中…';
+    }
+  });
+  // Ctrl/Cmd+S 保存
+  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => { save(); });
+}
+
+/** 外部内容/路径变化 → 同步到 Monaco（避免触发自身 change 事件循环）。 */
+function syncEditor() {
+  if (!editor || !monaco) return;
+  if (editor.getValue() !== currentContent.value) {
+    editor.setValue(currentContent.value);
+  }
+  const model = editor.getModel();
+  if (model) monaco.editor.setModelLanguage(model, monacoLangFor(currentPath.value));
+}
+
+function disposeEditor() {
+  if (editor) { editor.dispose(); editor = null; }
+}
+
+// ---- 保存 ----
 function onKeydown(e: KeyboardEvent) {
+  // 全局 Ctrl/Cmd+S（编辑器内已由 Monaco 快捷键处理，这里覆盖非编辑区焦点）
   if ((e.ctrlKey || e.metaKey) && e.key === 's') {
     e.preventDefault();
     save();
-  }
-  if (e.key === 'Tab' && !e.ctrlKey && !e.metaKey) {
-    e.preventDefault();
-    const ta = e.target as HTMLTextAreaElement;
-    const start = ta.selectionStart;
-    const end = ta.selectionEnd;
-    currentContent.value = currentContent.value.slice(0, start) + '  ' + currentContent.value.slice(end);
-    requestAnimationFrame(() => { ta.selectionStart = ta.selectionEnd = start + 2; });
-    dirty.value = true;
-    statusText.value = '编辑中…';
   }
 }
 
@@ -288,6 +628,26 @@ async function doCreateFile() {
   }
 }
 
+async function openSessionInProject(): Promise<void> {
+  const abs = currentWorkspacePath.value;
+  if (!abs) {
+    notice.value = '无法定位项目目录（未选择项目或缺少 root 信息）';
+    return;
+  }
+  sessionBusy.value = true;
+  try {
+    const sid = await connectWorkspaceByPath(abs);
+    if (sid) {
+      pushNotice('已在该目录开会话：' + abs);
+      emit('session-opened');
+    } else {
+      notice.value = '连接工作区失败，请重试';
+    }
+  } finally {
+    sessionBusy.value = false;
+  }
+}
+
 async function doDeleteCurrent() {
   if (!currentProject.value || !currentPath.value) return;
   if (!window.confirm(`删除 ${currentPath.value}？此操作不可恢复。`)) return;
@@ -325,18 +685,6 @@ const previewHtml = computed(() => {
   }
 });
 
-// ---- 行号 gutter ----
-const lineNumbers = computed(() => {
-  const n = Math.max(currentContent.value.split('\n').length, 1);
-  return Array.from({ length: n }, (_, i) => i + 1).join('\n');
-});
-
-function onEditorScroll() {
-  const gutter = gutterRef.value;
-  const ta = editorRef.value;
-  if (gutter && ta) gutter.scrollTop = ta.scrollTop;
-}
-
 // ---- 场景切换：coder ↔ self 切换时组件复用（ToolsPage 中 v-else-if 保持挂载），
 // 必须监听 scene 重新加载对应场景的项目列表与文件树，否则文件树停留在旧场景 ----
 watch(
@@ -358,21 +706,52 @@ watch(
 );
 
 // ---- 生命周期 ----
-const gutterRef = ref<HTMLDivElement | null>(null);
-const editorRef = ref<HTMLTextAreaElement | null>(null);
+let themeObserver: MutationObserver | null = null;
 
 onMounted(() => {
   loadProjects();
   document.addEventListener('keydown', onKeydown);
+  // 预热加载 Monaco 内核（不阻塞界面，首次进入编辑即用）
+  loadMonaco().catch(() => {});
+  // 皮肤切换（data-theme）→ 同步 Monaco 主题
+  themeObserver = new MutationObserver(() => {
+    applyMonacoTheme();
+  });
+  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 });
 
 onBeforeUnmount(() => {
   document.removeEventListener('keydown', onKeydown);
+  themeObserver?.disconnect();
+  disposeEditor();
 });
 
 watch(notice, (v) => {
   if (v) {
     setTimeout(() => { notice.value = ''; }, 4000);
+  }
+});
+
+// 打开文件 → 创建/同步 Monaco（currentContent 已在同一 tick 内更新）
+watch(currentPath, () => {
+  if (previewMode.value) return;
+  nextTick(async () => {
+    try { await loadMonaco(); } catch { return; }
+    ensureEditor();
+    syncEditor();
+    editor?.layout();
+  });
+});
+
+// 编辑 ↔ 预览切换：进入编辑时确保 Monaco 已创建并重新布局
+watch(previewMode, (v) => {
+  if (!v && currentPath.value) {
+    nextTick(async () => {
+      try { await loadMonaco(); } catch { return; }
+      ensureEditor();
+      syncEditor();
+      editor?.layout();
+    });
   }
 });
 
@@ -398,6 +777,17 @@ defineExpose({});
         <el-option v-for="p in projects" :key="p.name" :label="`${p.name}${typeBadge(p.projectType)} (${p.fileCount})`" :value="p.name" />
       </el-select>
       <el-button v-if="!isSelf" size="small" @click="newProjectDialog = true">＋ 项目</el-button>
+      <el-button
+        size="small"
+        type="primary"
+        plain
+        :loading="sessionBusy"
+        :disabled="!currentProject || sessionBusy"
+        :title="'在该目录创建/连接工作区会话（工具默认 cwd = 项目目录）'"
+        @click="openSessionInProject"
+      >
+        💬 在此目录开会话
+      </el-button>
       <el-button size="small" :disabled="!currentProject" @click="newFileDialog = true">＋ 文件</el-button>
       <el-button size="small" :disabled="!currentPath" @click="doDeleteCurrent">🗑 删除</el-button>
       <el-button size="small" @click="loadTree">⟳ 刷新</el-button>
@@ -456,20 +846,12 @@ defineExpose({});
             </el-tag>
           </div>
           <div class="editor-body">
-            <div class="gutter" ref="gutterRef">{{ lineNumbers }}</div>
-            <textarea
-              v-if="!previewMode"
-              ref="editorRef"
-              class="editor-textarea"
-              :value="currentContent"
-              spellcheck="false"
-              @input="onEdit"
-              @scroll="onEditorScroll"
-            />
-            <div v-else class="editor-preview">
-              <!-- md 文件 → markdown 文档渲染；其他文件 → highlight.js 高亮 -->
+            <!-- 编辑模式：Monaco（自带行号/折叠/括号匹配，Monarch 词法高亮） -->
+            <div v-show="!previewMode" ref="monacoHost" class="monaco-host" />
+            <!-- 预览模式：md → markdown 文档渲染；其他 → highlight.js 高亮 -->
+            <div v-if="previewMode" class="editor-preview">
               <div v-if="isMarkdownPath(currentPath)" class="md-doc" v-html="previewHtml"></div>
-              <pre v-else><code v-html="previewHtml"></code></pre>
+              <pre v-else><code class="hljs" v-html="previewHtml"></code></pre>
             </div>
           </div>
         </template>
@@ -638,38 +1020,13 @@ defineExpose({});
   display: flex;
   min-height: 0;
   overflow: hidden;
+  position: relative; /* Monaco host 定位基准 */
 }
 
-.gutter {
-  width: 44px;
-  flex: none;
-  padding: 8px 8px 8px 0;
-  text-align: right;
-  font-family: ui-monospace, 'JetBrains Mono', Consolas, monospace;
-  font-size: 13px;
-  line-height: 20px;
-  color: var(--dsh-fg-3);
-  background: var(--dsh-bg-1);
-  border-right: 1px solid var(--dsh-border);
-  overflow: hidden;
-  white-space: pre;
-  user-select: none;
-}
-
-.editor-textarea {
-  flex: 1;
-  min-width: 0;
-  resize: none;
-  border: none;
-  outline: none;
-  background: transparent;
-  color: var(--dsh-fg-0);
-  font-family: ui-monospace, 'JetBrains Mono', Consolas, monospace;
-  font-size: 13px;
-  line-height: 20px;
-  padding: 8px 12px;
-  tab-size: 2;
-  overflow: auto;
+/* Monaco 编辑区：绝对定位铺满 editor-body */
+.monaco-host {
+  position: absolute;
+  inset: 0;
 }
 
 .editor-preview {

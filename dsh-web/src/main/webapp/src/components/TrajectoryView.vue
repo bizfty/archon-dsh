@@ -132,7 +132,7 @@ function stepBadge(step: TrajectoryStep): string {
     case 'assistant': return 'ASSIST';
     case 'tool': return step.toolName?.toUpperCase() || 'TOOL';
     case 'system': return 'SYS';
-    default: return step.type.toUpperCase();
+    default: return String(step.type).toUpperCase();
   }
 }
 

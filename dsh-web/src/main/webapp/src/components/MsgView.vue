@@ -5,6 +5,10 @@ import { appState, type MessageView } from '../store';
 import { renderMarkdown, escapeHtml } from '../render';
 import { answerQuestion, pendingQuestions, readFile } from '../api';
 
+const emit = defineEmits<{
+  (e: 'choose-workspace'): void;
+}>();
+
 /** 文件查看弹窗（点击工具行路径触发）。 */
 const fileDialog = ref<{ path: string; content: string; loading: boolean; error: string; isMarkdown: boolean } | null>(null);
 
@@ -290,7 +294,7 @@ async function submitAnswer(): Promise<void> {
   submitting.value = true;
   try {
     if (!q.id) {
-      const list = await pendingQuestions();
+      const list = await pendingQuestions(appState.sessionId);
       if (list.length > 0) q = { ...q, id: list[0].id };
     }
     if (!q.id) throw new Error('未找到挂起问题（可能已超时）');
@@ -317,6 +321,10 @@ async function submitAnswer(): Promise<void> {
         <div>🎯 目标：持久化 same-session 目标（CAS）</div>
         <div>🛠 工具：bash / fs / subagent / workflow / 浏览器 / GitHub…</div>
       </div>
+      <!-- hero：先选工作目录再开会话（对齐官方 EmptyHero workspace chip） -->
+      <button class="hero-workspace-btn" @click="emit('choose-workspace')">
+        📁 选择工作目录开始会话
+      </button>
     </div>
     <template v-else>
       <div v-if="appState.compactSummary" class="compact-marker">
@@ -483,6 +491,19 @@ async function submitAnswer(): Promise<void> {
 }
 
 .welcome { text-align: center; padding: 80px 20px; }
+.hero-workspace-btn {
+  margin-top: 24px;
+  padding: 10px 22px;
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--dsh-accent);
+  background: var(--dsh-accent-soft);
+  border: 1px solid var(--dsh-accent);
+  border-radius: 20px;
+  cursor: pointer;
+  transition: background-color .15s;
+}
+.hero-workspace-btn:hover { background: var(--dsh-accent); color: #fff; }
 .logo { font-size: 64px; }
 h2 { font-size: 28px; margin: 12px 0 8px; color: var(--dsh-fg-0); }
 p { color: var(--dsh-fg-2); margin-bottom: 30px; }

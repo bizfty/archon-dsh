@@ -1,5 +1,6 @@
 package com.bizfty.anchon.dsh;
 
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 
@@ -16,6 +17,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * 或设置 DB_URL/DB_USERNAME/DB_PASSWORD 环境变量。
  * 默认按 test 配置（H2 + liquibase.enabled=false）跳过，因此本测试显式声明属性。
  */
+@Disabled("需要真实 PostgreSQL 实例，启用时加 -Dspring.profiles.active=liquibase")
 @SpringBootTest(properties = {
         "spring.datasource.url=jdbc:postgresql://localhost:5432/agent",
         "spring.datasource.username=agent",
