@@ -1,0 +1,188 @@
+# DSH 初始 schema：dsh 自有表（与 JPA 实体一致；对既有库幂等）。
+# 注意：plan_step_dep 的复合主键 (step_id, depends_on_step_id) 在
+# PlanStepDepEntity 中以 @IdClass 声明，Liquibase 里用联合 primaryKey 表达。
+databaseChangeLog:
+  - changeSet:
+      id: 0001-01-anchon-kv
+      author: archon
+      changes:
+        - createTable:
+            tableName: anchon_kv
+            remarks: 通用 KV 存储（goals/plan/todo/settings 等命名空间）
+            columns:
+              - column: { name: namespace, type: VARCHAR(128), constraints: { nullable: false } }
+              - column: { name: kv_key, type: VARCHAR(256), constraints: { nullable: false } }
+              - column: { name: kv_value, type: TEXT }
+            primaryKey:
+              columnNames: namespace, kv_key
+              constraintName: pk_anchon_kv
+      rollback:
+        - dropTable: { tableName: anchon_kv }
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - tableExists: { tableName: anchon_kv }
+
+  - changeSet:
+      id: 0001-02-anchon-session
+      author: archon
+      changes:
+        - createTable:
+            tableName: anchon_session
+            remarks: 会话头
+            columns:
+              - column: { name: id, type: VARCHAR(64), constraints: { nullable: false, primaryKey: true, primaryKeyName: pk_anchon_session } }
+              - column: { name: title, type: VARCHAR(255) }
+              - column: { name: model, type: VARCHAR(128) }
+              - column: { name: cwd, type: VARCHAR(1024) }
+              - column: { name: status, type: VARCHAR(32) }
+              - column: { name: created_at, type: TIMESTAMP WITH TIME ZONE }
+              - column: { name: updated_at, type: TIMESTAMP WITH TIME ZONE }
+      rollback:
+        - dropTable: { tableName: anchon_session }
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - tableExists: { tableName: anchon_session }
+
+  - changeSet:
+      id: 0001-03-anchon-session-event
+      author: archon
+      changes:
+        - createTable:
+            tableName: anchon_session_event
+            remarks: 会话事件日志（surface 事件流）
+            columns:
+              - column: { name: id, type: VARCHAR(64), constraints: { nullable: false } }
+              - column: { name: session_id, type: VARCHAR(64), constraints: { nullable: false } }
+              - column: { name: seq, type: BIGINT, constraints: { nullable: false } }
+              - column: { name: event_type, type: VARCHAR(32), constraints: { nullable: false } }
+              - column: { name: execution_id, type: VARCHAR(64) }
+              - column: { name: payload_json, type: TEXT }
+              - column: { name: created_at, type: TIMESTAMP WITH TIME ZONE }
+            primaryKey:
+              columnNames: id
+              constraintName: pk_anchon_session_event
+        - createIndex:
+            indexName: idx_anchon_session_event_session
+            tableName: anchon_session_event
+            columns:
+              - column: { name: session_id }
+      rollback:
+        - dropTable: { tableName: anchon_session_event }
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - tableExists: { tableName: anchon_session_event }
+
+  - changeSet:
+      id: 0001-04-anchon-session-message
+      author: archon
+      changes:
+        - createTable:
+            tableName: anchon_session_message
+            remarks: 会话消息（模型可见输入）
+            columns:
+              - column: { name: id, type: VARCHAR(64), constraints: { nullable: false } }
+              - column: { name: session_id, type: VARCHAR(64), constraints: { nullable: false } }
+              - column: { name: role, type: VARCHAR(16), constraints: { nullable: false } }
+              - column: { name: content, type: TEXT }
+              - column: { name: tool_call_id, type: VARCHAR(64) }
+              - column: { name: tool_name, type: VARCHAR(128) }
+              - column: { name: tool_calls_json, type: TEXT }
+              - column: { name: seq, type: BIGINT, constraints: { nullable: false } }
+              - column: { name: created_at, type: TIMESTAMP WITH TIME ZONE }
+            primaryKey:
+              columnNames: id
+              constraintName: pk_anchon_session_message
+        - createIndex:
+            indexName: idx_anchon_session_message_session
+            tableName: anchon_session_message
+            columns:
+              - column: { name: session_id }
+      rollback:
+        - dropTable: { tableName: anchon_session_message }
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - tableExists: { tableName: anchon_session_message }
+
+  - changeSet:
+      id: 0001-05-plan
+      author: archon
+      changes:
+        - createTable:
+            tableName: plan
+            remarks: DAG 计划头
+            columns:
+              - column: { name: id, type: VARCHAR(64), constraints: { nullable: false } }
+              - column: { name: session_id, type: VARCHAR(128), constraints: { nullable: false } }
+              - column: { name: title, type: VARCHAR(512), constraints: { nullable: false } }
+              - column: { name: status, type: VARCHAR(32), constraints: { nullable: false } }
+              - column: { name: created_at, type: TIMESTAMP WITH TIME ZONE, constraints: { nullable: false } }
+              - column: { name: updated_at, type: TIMESTAMP WITH TIME ZONE, constraints: { nullable: false } }
+            primaryKey:
+              columnNames: id
+              constraintName: pk_plan
+        - createIndex:
+            indexName: idx_plan_session
+            tableName: plan
+            columns:
+              - column: { name: session_id }
+      rollback:
+        - dropTable: { tableName: plan }
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - tableExists: { tableName: plan }
+
+  - changeSet:
+      id: 0001-06-plan-step
+      author: archon
+      changes:
+        - createTable:
+            tableName: plan_step
+            remarks: DAG 计划步骤（节点）
+            columns:
+              - column: { name: id, type: VARCHAR(64), constraints: { nullable: false } }
+              - column: { name: plan_id, type: VARCHAR(64), constraints: { nullable: false } }
+              - column: { name: title, type: VARCHAR(512), constraints: { nullable: false } }
+              - column: { name: description, type: TEXT }
+              - column: { name: status, type: VARCHAR(32), constraints: { nullable: false } }
+              - column: { name: seq, type: INT, constraints: { nullable: false } }
+              - column: { name: created_at, type: TIMESTAMP WITH TIME ZONE, constraints: { nullable: false } }
+              - column: { name: updated_at, type: TIMESTAMP WITH TIME ZONE, constraints: { nullable: false } }
+            primaryKey:
+              columnNames: id
+              constraintName: pk_plan_step
+        - createIndex:
+            indexName: idx_plan_step_plan
+            tableName: plan_step
+            columns:
+              - column: { name: plan_id }
+      rollback:
+        - dropTable: { tableName: plan_step }
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - tableExists: { tableName: plan_step }
+
+  - changeSet:
+      id: 0001-07-plan-step-dep
+      author: archon
+      changes:
+        - createTable:
+            tableName: plan_step_dep
+            remarks: DAG 计划依赖边（step 依赖 depends_on_step）
+            columns:
+              - column: { name: step_id, type: VARCHAR(64), constraints: { nullable: false } }
+              - column: { name: depends_on_step_id, type: VARCHAR(64), constraints: { nullable: false } }
+            primaryKey:
+              columnNames: step_id, depends_on_step_id
+              constraintName: pk_plan_step_dep
+      rollback:
+        - dropTable: { tableName: plan_step_dep }
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - tableExists: { tableName: plan_step_dep }

@@ -3,28 +3,40 @@ server:
 
 spring:
   application:
-    name: dsh-java
-
-  # === 数据源（默认 H2 内存；生产换 PostgreSQL 环境变量）===
+    name: anchon-dsh
+  # === 数据源（敏感配置移至 profile 文件）===
   datasource:
-    url: ${DSH_DB_URL:jdbc:h2:mem:dsh;DB_CLOSE_DELAY=-1}
-    driver-class-name: ${DSH_DB_DRIVER:org.h2.Driver}
-    username: ${DSH_DB_USER:sa}
-    password: ${DSH_DB_PASSWORD:}
-
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/agent}
+    username: ${DB_USERNAME:agent}
+    password: ${DB_PASSWORD:}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: ${DB_MAX_POOL_SIZE:20}
+      minimum-idle: ${DB_MIN_IDLE:5}
+  # === JPA ===
+  # ddl-auto 与 Liquibase 配合：Liquibase 管理 dsh 自有表（幂等），
+  # Hibernate 不再 create（避免每次重启 drop 重建）；update 仅补齐实体差异。
   jpa:
     hibernate:
       ddl-auto: update
+    show-sql: false
     open-in-view: false
     properties:
       hibernate:
-        format_sql: false
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+
+  # === Liquibase（schema 迁移）===
+  # dsh 自有表由 db/changelog/db.changelog-master.yaml 管理；
+  # changeset 带 preConditions(MARK_RAN)，对既有库幂等（表已存在则跳过）。
+  liquibase:
+    change-log: classpath:db/changelog/db.changelog-master.yaml
+    enabled: true
 
   # === Spring AI — DeepSeek（OpenAI 兼容端点）===
   ai:
     openai:
-#      api-key: ${OPENAI_API_KEY:sk-placeholder-please-set-env}
-      api-key: sk-efad94cc989a498fa1ba1bccdb3509a8
+      api-key: ${OPENAI_API_KEY:sk-placeholder-please-set-env}
       base-url: ${OPENAI_BASE_URL:https://api.deepseek.com}
       chat:
         options:
@@ -34,10 +46,12 @@ spring:
 # === DSH 应用配置 ===
 dsh:
   agent:
-    max-steps: 25
+    max-steps: 200
     temperature: 0.7
     max-history-messages: 200
     max-parallel-tool-calls: 10
+  event-log:
+    include-tokens: false
   agents:
     main:
       provider: deepseek
@@ -50,12 +64,36 @@ dsh:
 
 copilot:
   skills:
-    directory: ./skills
+    directory: "classpath*:/skills"
+
+# === 版本信息（由 Maven 资源过滤注入 build.timestamp，未替换时使用默认值）===
+info:
+  app:
+    name: ${spring.application.name}
+    version: "@project.version@"
+    build:
+      timestamp: "@build.timestamp@"
+    description: DSH — DeepSeek Harness 平台
+  env:
+    enabled: true
+    keys:
+      - JAVA_HOME
+      - JAVA_VERSION
+      - OS_NAME
+      - OS_ARCH
+      - CPU_CORES
+  java:
+    enabled: true
+  os:
+    enabled: true
+  git:
+    enabled: true
+    mode: full
 
 logging:
   level:
     root: INFO
-    com.example.dsh: DEBUG
+    com.bizfty.anchon.dsh: DEBUG
 
 springdoc:
   api-docs:
@@ -67,4 +105,19 @@ springdoc:
     display-request-duration: true
     operations-sorter: method
     tags-sorter: alpha
-  show-actuator: false
+  show-actuator: true
+
+# === Spring Boot Actuator ===
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+  info:
+    env:
+      enabled: true
+    build:
+      enabled: true

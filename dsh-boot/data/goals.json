@@ -1,3 +1,0 @@
-{
-  "sess_4b7b3a1f-899e-4506-8245-a2f7885298b4" : "{\"id\":\"goal-aa0f5f16\",\"sessionId\":\"sess_4b7b3a1f-899e-4506-8245-a2f7885298b4\",\"objective\":\"完成 DeepSeek API 回归验证（maxGoalRounds 3），然后报告\",\"phase\":\"active\",\"blockedCode\":null,\"blockedReason\":null,\"maxGoalRounds\":3,\"roundsStarted\":0,\"createdAt\":1787158571925,\"updatedAt\":1787158571925,\"revision\":1}"
-}

@@ -73,6 +73,101 @@ OPENAI_API_KEY=sk-xxx mvn -o -pl dsh-boot spring-boot:run    # 启动（H2 内�
 - 自动化驱动（JSON-RPC stdio）：`java -jar ... --dsh.sdk.stdin-server.enabled=true`
 - 完整演示命令见 [docs/DEMO.md](docs/DEMO.md)
 
+## IntelliJ IDEA 开发配置
+
+### 1. 添加环境变量（OPENAI_API_KEY 等）
+
+IDEA 提供两种方式配置环境变量，推荐使用 **Run Configuration**：
+
+#### 方式一：Edit Configuration（推荐）
+
+1. 顶部菜单点击 **Run → Edit Configurations...**
+2. 在左侧选择你的 Spring Boot 运行配置（通常是 `DshApplication`）
+3. 切换到 **Environment variables** 一行右侧的图标，或直接点击下方展开
+4. 点击 **"..."** 按钮 → **"+"** 添加变量：
+
+| Name | Value | 说明 |
+|------|-------|------|
+| `OPENAI_API_KEY` | `sk-你的密钥` | **必填**，LLM API Key |
+| `OPENAI_BASE_URL` | `https://api.deepseek.com` | 可选，默认 DeepSeek |
+| `OPENAI_MODEL` | `deepseek-chat` | 可选，默认 deepseek-chat |
+| `DB_URL` | `jdbc:postgresql://localhost:5432/agent` | 可选，默认本地 |
+| `DB_USERNAME` | `agent` | 可选 |
+| `DB_PASSWORD` | `agent@123` | 可选 |
+
+5. 点击 **OK** 保存，运行时 IDEA 会自动注入这些变量
+
+#### 方式二：在 application.yml 中直接写
+
+开发阶段可在 `dsh-boot/src/main/resources/application-local.yml` 中直接填入值（该文件已加入 `.gitignore`，不会被提交）：
+
+```yaml
+spring:
+  ai:
+    openai:
+      api-key: sk-你的密钥
+      base-url: https://api.deepseek.com
+```
+
+### 2. 激活 Spring Profile
+
+项目预置了两个 profile：
+
+| Profile | 配置文件 | 用途 |
+|---------|---------|------|
+| `local` | `application-local.yml` | 本地开发（H2 库、DEBUG 日志、SQL 输出） |
+| `online` | `application-online.yml` | 线上环境（PostgreSQL、WARN 日志、日志滚动） |
+
+#### 方式一：IDEA Run Configuration 中指定
+
+1. **Run → Edit Configurations...** → 选中你的 Spring Boot 配置
+2. 找到 **Active profiles** 字段
+3. 填入 `local`（开发）或 `online`（生产）
+4. 保存并重启应用
+
+#### 方式二：代码中硬编码（仅限开发）
+
+在 `DshApplication.java` 启动类上添加注解：
+
+```java
+@SpringBootApplication
+@EnableScheduling
+@Profile("local")   // 仅在 local profile 下生效（可选）
+public class DshApplication {
+    ...
+}
+```
+
+或在 `application.yml` 中设置默认 profile：
+
+```yaml
+spring:
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:local}
+```
+
+#### 方式三：VM Options / Command Line
+
+```bash
+# VM 参数
+-Dspring.profiles.active=local
+
+# 命令行参数
+--spring.profiles.active=local
+```
+
+### 3. 完整 IDEA 配置流程
+
+```
+Run → Edit Configurations
+  ├── Main class: com.bizfty.anchon.dsh.DshApplication
+  ├── Active profiles: local
+  ├── Environment variables:
+  │     OPENAI_API_KEY=sk-xxxx
+  │     DB_PASSWORD=agent@123
+  └── Module: dsh-boot
+```
+
 ## 接口
 
 | 端点 | 说明 |

@@ -1,0 +1,39 @@
+# 计划步骤执行关联表（plan_step_execution）— 点击已执行节点查看操作过程。
+# 记录"某计划步骤执行期间的工具调用"；并行执行下每个调用独立一行，天然准确。
+databaseChangeLog:
+  - changeSet:
+      id: 0004-01-plan-step-execution
+      author: archon
+      changes:
+        - createTable:
+            tableName: plan_step_execution
+            remarks: 计划步骤 ↔ 工具调用关联（执行过程展示）
+            columns:
+              - column: { name: id, type: VARCHAR(64), constraints: { nullable: false } }
+              - column: { name: plan_id, type: VARCHAR(64), constraints: { nullable: false } }
+              - column: { name: plan_step_id, type: VARCHAR(64), constraints: { nullable: false } }
+              - column: { name: session_id, type: VARCHAR(128), constraints: { nullable: false } }
+              - column: { name: tool_name, type: VARCHAR(64), constraints: { nullable: false } }
+              - column: { name: args_summary, type: VARCHAR(512) }
+              - column: { name: tool_call_id, type: VARCHAR(128) }
+              - column: { name: status, type: VARCHAR(32) }
+              - column: { name: created_at, type: TIMESTAMP WITH TIME ZONE, constraints: { nullable: false } }
+            primaryKey:
+              columnNames: id
+              constraintName: pk_plan_step_execution
+        - createIndex:
+            indexName: idx_pse_step
+            tableName: plan_step_execution
+            columns:
+              - column: { name: plan_step_id }
+        - createIndex:
+            indexName: idx_pse_session
+            tableName: plan_step_execution
+            columns:
+              - column: { name: session_id }
+      rollback:
+        - dropTable: { tableName: plan_step_execution }
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - tableExists: { tableName: plan_step_execution }

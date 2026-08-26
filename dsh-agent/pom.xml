@@ -4,7 +4,7 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <parent>
-        <groupId>com.example</groupId>
+        <groupId>com.bizfty.anchon</groupId>
         <artifactId>anchon</artifactId>
         <version>0.0.1-SNAPSHOT</version>
     </parent>
@@ -14,36 +14,44 @@
     <description>Agent loop: manually drives model→tool→model turn/step cycle</description>
     <dependencies>
         <dependency>
-            <groupId>com.example</groupId>
+            <groupId>com.bizfty.anchon</groupId>
             <artifactId>dsh-core</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.example</groupId>
+            <groupId>com.bizfty.anchon</groupId>
             <artifactId>dsh-tool</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.example</groupId>
+            <groupId>com.bizfty.anchon</groupId>
             <artifactId>dsh-session</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.example</groupId>
+            <groupId>com.bizfty.anchon</groupId>
             <artifactId>dsh-llm</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.example</groupId>
+            <groupId>com.bizfty.anchon</groupId>
             <artifactId>dsh-compaction</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.example</groupId>
+            <groupId>com.bizfty.anchon</groupId>
             <artifactId>dsh-sandbox</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.example</groupId>
+            <groupId>com.bizfty.anchon</groupId>
             <artifactId>dsh-settings</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.example</groupId>
+            <groupId>com.bizfty.anchon</groupId>
             <artifactId>dsh-credentials</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.bizfty.anchon</groupId>
+            <artifactId>dsh-goal</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.bizfty.anchon</groupId>
+            <artifactId>dsh-plan</artifactId>
         </dependency>
         <dependency>
             <groupId>io.projectreactor</groupId>

@@ -1,0 +1,17 @@
+# DSH 数据库迁移 master changelog（Liquibase）
+# 约定：
+#   - dsh 自有表（anchon_*、plan、plan_step、plan_step_dep 等）由此目录管理；
+#   - 历史外部迁移（db.changelog-master.sql 的 product/brand 等）不在本文件内（保留原库记录）；
+#   - 每个 changeset 用 preConditions(onFail='MARK_RAN') 保证对既有库幂等
+#     （表已由 Hibernate ddl-auto 建过的环境跳过，新库/测试库自动创建）。
+databaseChangeLog:
+  - include:
+      file: db/changelog/changelogs/0001-init-dsh-schema.yaml
+  - include:
+      file: db/changelog/changelogs/0002-todo-item.yaml
+  - include:
+      file: db/changelog/changelogs/0003-todo-as-dag.yaml
+  - include:
+      file: db/changelog/changelogs/0004-plan-step-execution.yaml
+  - include:
+      file: db/changelog/changelogs/0005-plan-step-review.yaml

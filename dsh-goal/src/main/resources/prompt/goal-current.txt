@@ -1,0 +1,3 @@
+当前目标: ${objective}
+（phase=${phase}, rounds=${rounds_started}/${max_rounds}, id=${goal_id}, revision=${revision}）
+${blocked_section}

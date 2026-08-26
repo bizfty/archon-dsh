@@ -4,7 +4,7 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <parent>
-        <groupId>com.example</groupId>
+        <groupId>com.bizfty.anchon</groupId>
         <artifactId>anchon</artifactId>
         <version>0.0.1-SNAPSHOT</version>
     </parent>
@@ -14,7 +14,7 @@
     <description>Credential reference seam: config holds refs only, resolves per-operation, describe never exposes values</description>
     <dependencies>
         <dependency>
-            <groupId>com.example</groupId>
+            <groupId>com.bizfty.anchon</groupId>
             <artifactId>dsh-storage</artifactId>
         </dependency>
         <dependency>

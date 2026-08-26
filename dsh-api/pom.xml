@@ -4,7 +4,7 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <parent>
-        <groupId>com.example</groupId>
+        <groupId>com.bizfty.anchon</groupId>
         <artifactId>anchon</artifactId>
         <version>0.0.1-SNAPSHOT</version>
     </parent>
@@ -14,40 +14,68 @@
     <description>External API: REST/SSE session API + OpenAI-compatible Chat Completions gateway</description>
     <dependencies>
         <dependency>
-            <groupId>com.example</groupId>
+            <groupId>com.bizfty.anchon</groupId>
             <artifactId>dsh-agent</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.example</groupId>
+            <groupId>com.bizfty.anchon</groupId>
             <artifactId>dsh-interaction</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.example</groupId>
+            <groupId>com.bizfty.anchon</groupId>
             <artifactId>dsh-session</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.example</groupId>
+            <groupId>com.bizfty.anchon</groupId>
             <artifactId>dsh-feedback</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.example</groupId>
+            <groupId>com.bizfty.anchon</groupId>
             <artifactId>dsh-credentials</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.example</groupId>
+            <groupId>com.bizfty.anchon</groupId>
             <artifactId>dsh-settings</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.example</groupId>
+            <groupId>com.bizfty.anchon</groupId>
             <artifactId>dsh-user</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.example</groupId>
+            <groupId>com.bizfty.anchon</groupId>
             <artifactId>dsh-goal</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.bizfty.anchon</groupId>
+            <artifactId>dsh-plan</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.bizfty.anchon</groupId>
+            <artifactId>dsh-fs</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.bizfty.anchon</groupId>
+            <artifactId>dsh-todo</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.bizfty.anchon</groupId>
+            <artifactId>dsh-jobs</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.bizfty.anchon</groupId>
+            <artifactId>dsh-skill</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.bizfty.anchon</groupId>
+            <artifactId>dsh-subagent</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webmvc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-websocket</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -56,6 +84,11 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>

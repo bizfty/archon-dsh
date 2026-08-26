@@ -1,0 +1,40 @@
+# todo 独立表（方案 C：可选关联 DAG）。
+# plan_step_id 可空：非空 = 该 todo 项是 plan_step 的投影（双向同步）；空 = 自由清单项。
+# 对既有库幂等：表已存在（Hibernate 建过）→ MARK_RAN 跳过。
+databaseChangeLog:
+  - changeSet:
+      id: 0002-01-todo-item
+      author: archon
+      changes:
+        - createTable:
+            tableName: todo_item
+            remarks: 待办项（每会话一清单，整表替换；可选投影 DAG 步骤）
+            columns:
+              - column: { name: id, type: VARCHAR(64), constraints: { nullable: false } }
+              - column: { name: session_id, type: VARCHAR(128), constraints: { nullable: false } }
+              - column: { name: plan_step_id, type: VARCHAR(64) }
+              - column: { name: title, type: VARCHAR(512), constraints: { nullable: false } }
+              - column: { name: description, type: TEXT }
+              - column: { name: status, type: VARCHAR(32), constraints: { nullable: false } }
+              - column: { name: seq, type: INT, constraints: { nullable: false } }
+              - column: { name: created_at, type: TIMESTAMP WITH TIME ZONE, constraints: { nullable: false } }
+              - column: { name: updated_at, type: TIMESTAMP WITH TIME ZONE, constraints: { nullable: false } }
+            primaryKey:
+              columnNames: id
+              constraintName: pk_todo_item
+        - createIndex:
+            indexName: idx_todo_session
+            tableName: todo_item
+            columns:
+              - column: { name: session_id }
+        - createIndex:
+            indexName: idx_todo_plan_step
+            tableName: todo_item
+            columns:
+              - column: { name: plan_step_id }
+      rollback:
+        - dropTable: { tableName: todo_item }
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - tableExists: { tableName: todo_item }

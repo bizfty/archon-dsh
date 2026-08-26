@@ -4,7 +4,7 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <parent>
-        <groupId>com.example</groupId>
+        <groupId>com.bizfty.anchon</groupId>
         <artifactId>anchon</artifactId>
         <version>0.0.1-SNAPSHOT</version>
     </parent>
@@ -14,12 +14,40 @@
     <description>Todo capability: todo_write tool with full-table replacement</description>
     <dependencies>
         <dependency>
-            <groupId>com.example</groupId>
+            <groupId>com.bizfty.anchon</groupId>
             <artifactId>dsh-tool</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.example</groupId>
+            <groupId>com.bizfty.anchon</groupId>
             <artifactId>dsh-storage</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.bizfty.anchon</groupId>
+            <artifactId>dsh-core</artifactId>
+        </dependency>
+        <!-- 可选关联 DAG：todo 项可挂 plan_step，更新时正向同步 DagPlanService -->
+        <dependency>
+            <groupId>com.bizfty.anchon</groupId>
+            <artifactId>dsh-plan</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-test-autoconfigure</artifactId>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 </project>

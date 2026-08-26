@@ -1,0 +1,69 @@
+# ==============================
+# Online 线上/生产环境
+# ==============================
+# 本文件包含生产环境的敏感配置，已加入 .gitignore，不要提交到仓库。
+# 启动时使用:  spring.profiles.active=online
+# 或命令行:     java -jar app.jar --spring.profiles.active=online
+
+spring:
+  config:
+    activate:
+      on-profile: online
+  datasource:
+    url: jdbc:postgresql://your-db-host:5432/agent
+    username: ${DB_USERNAME:agent}
+    password: ${DB_PASSWORD:}
+    hikari:
+      maximum-pool-size: ${DB_MAX_POOL_SIZE:30}
+      minimum-idle: ${DB_MIN_IDLE:10}
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+
+  # === Spring AI ===
+  ai:
+    openai:
+      api-key: ${OPENAI_API_KEY:}
+      base-url: ${OPENAI_BASE_URL:https://api.deepseek.com}
+      chat:
+        options:
+          model: ${OPENAI_MODEL:deepseek-chat}
+          temperature: 0.7
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+
+# === 日志 ===
+logging:
+  level:
+    root: INFO
+    com.bizfty.anchon.dsh: WARN
+  file:
+    name: /var/log/dsh/app.log
+  logback:
+    rollingpolicy:
+      max-file-size: 100MB
+      max-history: 30
+
+# === DSH ===
+dsh:
+  agent:
+    max-steps: 200
+    temperature: 0.7
+  agents:
+    main:
+      model: ${DSH_AGENT_MODEL:deepseek-chat}
+    planner:
+      model: ${DSH_AGENT_MODEL:deepseek-chat}
+
+# === Actuator ===
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when-authorized

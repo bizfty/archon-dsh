@@ -1,0 +1,34 @@
+# 测试环境数据源：H2 内存（不连 Postgres，保证测试隔离与可离线运行）。
+# 生产配置在 src/main/resources/application.yml（PostgreSQL: anchon 全量落库）。
+spring:
+  datasource:
+    url: jdbc:h2:mem:dsh_test;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    open-in-view: false
+
+  # 测试用 Hibernate create-drop 建表即可；Liquibase 迁移在生产/本地库生效。
+  liquibase:
+    enabled: false
+
+  ai:
+    openai:
+      api-key: sk-test-placeholder
+      base-url: https://api.deepseek.com
+      chat:
+        options:
+          model: deepseek-chat
+
+dsh:
+  agent:
+    max-steps: 200
+    max-parallel-tool-calls: 10
+  storage:
+    dir: ./target/test-data
+  event-log:
+    include-tokens: false

@@ -1,0 +1,66 @@
+# 统一 todo 为 DAG 特殊形式（0003）：
+#   1. plan_step 增加 required（必做，默认 true）+ 状态扩展（cancelled/skipped/failed 由应用层管理）；
+#   2. 旧独立表 todo_item 数据 → plan_step（按会话分组为无依赖计划），迁移后 drop todo_item。
+# 幂等：已执行（0002-todo-item 已在库）→ 本 changeset 执行迁移；全新库 → 无 todo_item 表则跳过迁移。
+databaseChangeLog:
+  - changeSet:
+      id: 0003-01-plan-step-required
+      author: archon
+      changes:
+        - addColumn:
+            tableName: plan_step
+            columns:
+              - column:
+                  name: required
+                  type: BOOLEAN
+                  defaultValueBoolean: true
+                  constraints: { nullable: false }
+      rollback:
+        - dropColumn:
+            tableName: plan_step
+            columnName: required
+      preConditions:
+        - onFail: MARK_RAN
+        - tableExists: { tableName: plan_step }
+        - not:
+            - columnExists: { tableName: plan_step, columnName: required }
+
+  # 迁移旧 todo_item → plan_step（仅当 todo_item 表存在且有数据、目标 plan 不存在时）。
+  # 用 sql 迁移：每会话生成一个 plan（title=待办）+ 该会话的 todo_item 行作为 pending 步骤。
+  - changeSet:
+      id: 0003-02-migrate-todo-item
+      author: archon
+      changes:
+        - sql:
+            dbms: postgresql
+            splitStatements: true
+            comment: 迁移旧 todo_item 数据到 plan_step（无依赖计划）
+            sql: |
+              INSERT INTO plan (id, session_id, title, status, created_at, updated_at)
+              SELECT 'plan-todo-mig-' || t.session_id, t.session_id, '待办', 'active',
+                     now(), now()
+              FROM (SELECT DISTINCT session_id FROM todo_item) t
+              WHERE NOT EXISTS (SELECT 1 FROM plan p WHERE p.session_id = t.session_id);
+
+              INSERT INTO plan_step (id, plan_id, title, description, status, required, seq, created_at, updated_at)
+              SELECT 'step-todo-mig-' || i.id, 'plan-todo-mig-' || i.session_id,
+                     i.title, i.description, i.status, TRUE, i.seq, now(), now()
+              FROM todo_item i;
+
+              DROP TABLE todo_item;
+      rollback:
+        - sql: |
+            CREATE TABLE todo_item (
+              id VARCHAR(64) PRIMARY KEY,
+              session_id VARCHAR(128) NOT NULL,
+              plan_step_id VARCHAR(64),
+              title VARCHAR(512) NOT NULL,
+              description TEXT,
+              status VARCHAR(32) NOT NULL,
+              seq INT NOT NULL,
+              created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+              updated_at TIMESTAMP WITH TIME ZONE NOT NULL
+            );
+      preConditions:
+        - onFail: MARK_RAN
+        - tableExists: { tableName: todo_item }

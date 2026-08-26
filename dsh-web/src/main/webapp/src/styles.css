@@ -1,22 +1,152 @@
-/* 全局基础样式（Element Plus 之上） */
+/* ================================================================
+   DSH THEME SYSTEM · 6 套皮肤
+   切换方式: document.documentElement.setAttribute('data-theme', 'xxx')
+   ================================================================ */
+
+/* ---------- 深色 · Midnight (默认 / 原风格) ---------- */
 :root {
-  --dsh-bg: #1e1f24;
-  --dsh-sidebar: #17181d;
+  --dsh-mode: dark;
+  --dsh-bg-0: #17181d;
+  --dsh-bg-1: #1e1f24;
+  --dsh-bg-2: #26272e;
+  --dsh-bg-3: #2c2d35;
+  --dsh-fg-0: #e6e6eb;
+  --dsh-fg-1: #c5c6cf;
+  --dsh-fg-2: #9a9ba6;
+  --dsh-fg-3: #6b6c75;
+  --dsh-accent: #4f7cff;
+  --dsh-accent-hover: #6d93ff;
+  --dsh-accent-soft: rgba(79,124,255,.15);
+  --dsh-accent-contrast: #ffffff;
   --dsh-border: #33343d;
+  --dsh-border-strong: #3f4049;
+  --dsh-success: #2ecc71;
+  --dsh-warning: #f39c12;
+  --dsh-danger: #e74c3c;
+  --dsh-code-bg: #14151a;
 }
 
+/* ---------- 深色 · Aurora (极光绿) ---------- */
+:root[data-theme="aurora"] {
+  --dsh-mode: dark;
+  --dsh-bg-0: #111917; --dsh-bg-1: #162019; --dsh-bg-2: #1f2d24; --dsh-bg-3: #26362b;
+  --dsh-fg-0: #e6f2ea; --dsh-fg-1: #b8d4c2; --dsh-fg-2: #7ea18d; --dsh-fg-3: #52725f;
+  --dsh-accent: #2ecc71; --dsh-accent-hover: #4dd689; --dsh-accent-soft: rgba(46,204,113,.15); --dsh-accent-contrast: #0a1a10;
+  --dsh-border: #2a3d32; --dsh-border-strong: #36503f;
+  --dsh-success: #2ecc71; --dsh-warning: #f1c40f; --dsh-danger: #e74c3c;
+  --dsh-code-bg: #0d1712;
+}
+
+/* ---------- 深色 · Ember (余烬橙红) ---------- */
+:root[data-theme="ember"] {
+  --dsh-mode: dark;
+  --dsh-bg-0: #1d1715; --dsh-bg-1: #261e1b; --dsh-bg-2: #2e2621; --dsh-bg-3: #382f28;
+  --dsh-fg-0: #f7ecdf; --dsh-fg-1: #d9c4ad; --dsh-fg-2: #a38972; --dsh-fg-3: #6f5a48;
+  --dsh-accent: #ff6b35; --dsh-accent-hover: #ff8858; --dsh-accent-soft: rgba(255,107,53,.15); --dsh-accent-contrast: #1a0e08;
+  --dsh-border: #3d3029; --dsh-border-strong: #4d3c33;
+  --dsh-success: #27ae60; --dsh-warning: #f39c12; --dsh-danger: #e74c3c;
+  --dsh-code-bg: #1a1410;
+}
+
+/* ---------- 深色 · Royal (皇室紫) ---------- */
+:root[data-theme="royal"] {
+  --dsh-mode: dark;
+  --dsh-bg-0: #171421; --dsh-bg-1: #1d1930; --dsh-bg-2: #262040; --dsh-bg-3: #2f2850;
+  --dsh-fg-0: #ece8fa; --dsh-fg-1: #c4bce0; --dsh-fg-2: #8e85b5; --dsh-fg-3: #5e568a;
+  --dsh-accent: #8a5cf6; --dsh-accent-hover: #a77df9; --dsh-accent-soft: rgba(138,92,246,.15); --dsh-accent-contrast: #151028;
+  --dsh-border: #332d4a; --dsh-border-strong: #423a5e;
+  --dsh-success: #2ecc71; --dsh-warning: #f39c12; --dsh-danger: #e74c3c;
+  --dsh-code-bg: #120f1f;
+}
+
+/* ---------- 浅色 · Cloud (云蓝) ---------- */
+:root[data-theme="cloud"] {
+  --dsh-mode: light;
+  --dsh-bg-0: #e9edf3; --dsh-bg-1: #f4f6fa; --dsh-bg-2: #ffffff; --dsh-bg-3: #eaeef5;
+  --dsh-fg-0: #1a1d23; --dsh-fg-1: #3a3f4a; --dsh-fg-2: #6b7280; --dsh-fg-3: #9ca3af;
+  --dsh-accent: #2e6dd6; --dsh-accent-hover: #4a85e3; --dsh-accent-soft: rgba(46,109,214,.12); --dsh-accent-contrast: #ffffff;
+  --dsh-border: #dde3ec; --dsh-border-strong: #c5cdd9;
+  --dsh-success: #16a34a; --dsh-warning: #d97706; --dsh-danger: #dc2626;
+  --dsh-code-bg: #f1f3f8;
+}
+
+/* ---------- 浅色 · Paper (纸白) ---------- */
+:root[data-theme="paper"] {
+  --dsh-mode: light;
+  --dsh-bg-0: #efe8dc; --dsh-bg-1: #f8f3e8; --dsh-bg-2: #ffffff; --dsh-bg-3: #ede4d3;
+  --dsh-fg-0: #2c2418; --dsh-fg-1: #4a3e2c; --dsh-fg-2: #7a6b50; --dsh-fg-3: #a89878;
+  --dsh-accent: #c0392b; --dsh-accent-hover: #d9534f; --dsh-accent-soft: rgba(192,57,43,.10); --dsh-accent-contrast: #ffffff;
+  --dsh-border: #e3dccb; --dsh-border-strong: #cdc4ac;
+  --dsh-success: #15803d; --dsh-warning: #b45309; --dsh-danger: #b91c1c;
+  --dsh-code-bg: #f3ecdd;
+}
+
+/* ---------- 全局基础 ---------- */
 html, body, #app {
   height: 100%;
   margin: 0;
-  background: var(--dsh-bg);
-  color: #e6e6eb;
+  background: var(--dsh-bg-1);
+  color: var(--dsh-fg-0);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  transition: background-color .2s ease, color .2s ease;
 }
 
-/* 深色适配 Element Plus 组件背景 */
-.dsh-dark .el-input__wrapper,
-.dsh-dark .el-textarea__inner,
-.dsh-dark .el-select__wrapper {
-  background: #26272e;
+/* ---------- Element Plus 全局适配 ---------- */
+:root .el-input__wrapper,
+:root .el-textarea__inner,
+:root .el-select__wrapper {
+  background: var(--dsh-bg-2);
   box-shadow: 0 0 0 1px var(--dsh-border) inset;
+}
+
+:root .el-input__wrapper.is-focus,
+:root .el-select__wrapper.is-focused {
+  box-shadow: 0 0 0 1px var(--dsh-accent) inset !important;
+}
+
+:root .el-button--primary {
+  background-color: var(--dsh-accent);
+  border-color: var(--dsh-accent);
+}
+:root .el-button--primary:hover {
+  background-color: var(--dsh-accent-hover);
+  border-color: var(--dsh-accent-hover);
+}
+
+:root .el-tag {
+  background-color: var(--dsh-bg-2);
+  border-color: var(--dsh-border);
+  color: var(--dsh-fg-1);
+}
+
+:root .el-alert {
+  background-color: var(--dsh-bg-2);
+  border-color: var(--dsh-border);
+  color: var(--dsh-fg-0);
+}
+
+:root .el-empty__description p { color: var(--dsh-fg-2); }
+:root .el-menu { background-color: var(--dsh-bg-0); }
+
+/* highlight.js 代码块在浅色主题下需要覆盖 */
+:root .hljs { background: var(--dsh-code-bg) !important; }
+
+/* 自定义滚动条 */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--dsh-border);
+  border-radius: 4px;
+  transition: background-color .15s;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--dsh-border-strong); }
+
+/* 折叠侧栏隐藏滚动条 */
+.sidebar.collapsed .list::-webkit-scrollbar { display: none; }
+.sidebar.collapsed .list { scrollbar-width: none; }
+
+/* 全局滚动条在浅色主题下更浅 */
+:root[data-theme="cloud"] ::-webkit-scrollbar-thumb,
+:root[data-theme="paper"] ::-webkit-scrollbar-thumb {
+  background: var(--dsh-border-strong);
 }

@@ -11,7 +11,7 @@
         <relativePath/>
     </parent>
 
-    <groupId>com.example</groupId>
+    <groupId>com.bizfty.anchon</groupId>
     <artifactId>anchon</artifactId>
     <version>0.0.1-SNAPSHOT</version>
     <packaging>pom</packaging>
@@ -93,198 +93,198 @@
             </dependency>
             <!-- 内部模块 -->
             <dependency>
-                <groupId>com.example</groupId>
+                <groupId>com.bizfty.anchon</groupId>
                 <artifactId>dsh-util</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.example</groupId>
+                <groupId>com.bizfty.anchon</groupId>
                 <artifactId>dsh-core</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.example</groupId>
+                <groupId>com.bizfty.anchon</groupId>
                 <artifactId>dsh-tool</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.example</groupId>
+                <groupId>com.bizfty.anchon</groupId>
                 <artifactId>dsh-todo</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.example</groupId>
+                <groupId>com.bizfty.anchon</groupId>
                 <artifactId>dsh-plan</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.example</groupId>
+                <groupId>com.bizfty.anchon</groupId>
                 <artifactId>dsh-fs</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.example</groupId>
+                <groupId>com.bizfty.anchon</groupId>
                 <artifactId>dsh-shell</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.example</groupId>
+                <groupId>com.bizfty.anchon</groupId>
                 <artifactId>dsh-skill</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.example</groupId>
+                <groupId>com.bizfty.anchon</groupId>
                 <artifactId>dsh-session</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.example</groupId>
+                <groupId>com.bizfty.anchon</groupId>
                 <artifactId>dsh-llm</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.example</groupId>
+                <groupId>com.bizfty.anchon</groupId>
                 <artifactId>dsh-agent</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.example</groupId>
+                <groupId>com.bizfty.anchon</groupId>
                 <artifactId>dsh-interaction</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.example</groupId>
+                <groupId>com.bizfty.anchon</groupId>
                 <artifactId>dsh-guard</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.example</groupId>
+                <groupId>com.bizfty.anchon</groupId>
                 <artifactId>dsh-compaction</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.example</groupId>
+                <groupId>com.bizfty.anchon</groupId>
                 <artifactId>dsh-subagent</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.example</groupId>
+                <groupId>com.bizfty.anchon</groupId>
                 <artifactId>dsh-context</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.example</groupId>
+                <groupId>com.bizfty.anchon</groupId>
                 <artifactId>dsh-jobs</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.example</groupId>
+                <groupId>com.bizfty.anchon</groupId>
                 <artifactId>dsh-mcp</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.example</groupId>
+                <groupId>com.bizfty.anchon</groupId>
                 <artifactId>dsh-sdk</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.example</groupId>
+                <groupId>com.bizfty.anchon</groupId>
                 <artifactId>dsh-credentials</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.example</groupId>
+                <groupId>com.bizfty.anchon</groupId>
                 <artifactId>dsh-sandbox</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.example</groupId>
+                <groupId>com.bizfty.anchon</groupId>
                 <artifactId>dsh-schedule</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.example</groupId>
+                <groupId>com.bizfty.anchon</groupId>
                 <artifactId>dsh-identity</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.example</groupId>
+                <groupId>com.bizfty.anchon</groupId>
                 <artifactId>dsh-feedback</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.example</groupId>
+                <groupId>com.bizfty.anchon</groupId>
                 <artifactId>dsh-storage</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.example</groupId>
+                <groupId>com.bizfty.anchon</groupId>
                 <artifactId>dsh-settings</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.example</groupId>
+                <groupId>com.bizfty.anchon</groupId>
                 <artifactId>dsh-lsp</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.example</groupId>
+                <groupId>com.bizfty.anchon</groupId>
                 <artifactId>dsh-code-runtime</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.example</groupId>
+                <groupId>com.bizfty.anchon</groupId>
                 <artifactId>dsh-user</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.example</groupId>
+                <groupId>com.bizfty.anchon</groupId>
                 <artifactId>dsh-goal</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.example</groupId>
+                <groupId>com.bizfty.anchon</groupId>
                 <artifactId>dsh-hooks</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.example</groupId>
+                <groupId>com.bizfty.anchon</groupId>
                 <artifactId>dsh-workflow</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.example</groupId>
+                <groupId>com.bizfty.anchon</groupId>
                 <artifactId>dsh-web</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.example</groupId>
+                <groupId>com.bizfty.anchon</groupId>
                 <artifactId>dsh-search</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.example</groupId>
+                <groupId>com.bizfty.anchon</groupId>
                 <artifactId>dsh-api</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <!-- 新增模块 -->
             <dependency>
-                <groupId>com.example</groupId>
+                <groupId>com.bizfty.anchon</groupId>
                 <artifactId>dsh-browser</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.example</groupId>
+                <groupId>com.bizfty.anchon</groupId>
                 <artifactId>dsh-github</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.example</groupId>
+                <groupId>com.bizfty.anchon</groupId>
                 <artifactId>dsh-mysql</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.example</groupId>
+                <groupId>com.bizfty.anchon</groupId>
                 <artifactId>dsh-postgres</artifactId>
                 <version>${project.version}</version>
             </dependency>
@@ -323,6 +323,13 @@
     </dependencyManagement>
 
     <build>
+        <!-- 启用资源过滤，使 application.yml 中的 @project.version@、@build.timestamp@ 能被替换 -->
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>true</filtering>
+            </resource>
+        </resources>
         <pluginManagement>
             <plugins>
                 <plugin>
@@ -331,6 +338,43 @@
                     <configuration>
                         <release>${java.version}</release>
                     </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.codehaus.mojo</groupId>
+                    <artifactId>build-helper-maven-plugin</artifactId>
+                    <version>3.6.1</version>
+                    <executions>
+                        <execution>
+                            <id>generate-build-timestamp</id>
+                            <phase>initialize</phase>
+                            <goals>
+                                <goal>timestamp-property</goal>
+                            </goals>
+                            <configuration>
+                                <name>build.timestamp</name>
+                                <pattern>yyyyMMdd-HHmmss</pattern>
+                                <timeZone>GMT+08:00</timeZone>
+                            </configuration>
+                        </execution>
+                    </executions>
+                </plugin>
+                <plugin>
+                    <groupId>io.github.git-commit-id</groupId>
+                    <artifactId>git-commit-id-maven-plugin</artifactId>
+                    <version>9.0.1</version>
+                    <executions>
+                        <execution>
+                            <id>generate-git-properties</id>
+                            <phase>initialize</phase>
+                            <goals>
+                                <goal>revision</goal>
+                            </goals>
+                            <configuration>
+                                <failOnMissingGitInfo>false</failOnMissingGitInfo>
+                                <skip>false</skip>
+                            </configuration>
+                        </execution>
+                    </executions>
                 </plugin>
                 <plugin>
                     <groupId>org.springframework.boot</groupId>

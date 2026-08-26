@@ -4,7 +4,7 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <parent>
-        <groupId>com.example</groupId>
+        <groupId>com.bizfty.anchon</groupId>
         <artifactId>anchon</artifactId>
         <version>0.0.1-SNAPSHOT</version>
     </parent>
@@ -20,15 +20,15 @@
     </repositories>
     <dependencies>
         <dependency>
-            <groupId>com.example</groupId>
+            <groupId>com.bizfty.anchon</groupId>
             <artifactId>dsh-tool</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.example</groupId>
+            <groupId>com.bizfty.anchon</groupId>
             <artifactId>dsh-util</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.example</groupId>
+            <groupId>com.bizfty.anchon</groupId>
             <artifactId>dsh-credentials</artifactId>
         </dependency>
         <dependency>

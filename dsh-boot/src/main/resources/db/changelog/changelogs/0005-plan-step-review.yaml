@@ -1,0 +1,48 @@
+# 计划步骤审阅门（kind + reviewed）— 对齐 OpenSpec 工件审阅语义。
+# - kind：task（实现步骤，默认）/ proposal（提案）/ spec（行为契约）/ design（设计）/ doc（文档）
+# - reviewed：是否已批准。doc 类（非 task）步骤须 reviewed=true 才进入 nextSteps（可执行）；
+#   task 类步骤不受审阅门约束 → 旧数据（kind=task）零影响。
+databaseChangeLog:
+  - changeSet:
+      id: 0005-01-plan-step-kind
+      author: archon
+      changes:
+        - addColumn:
+            tableName: plan_step
+            columns:
+              - column:
+                  name: kind
+                  type: VARCHAR(16)
+                  defaultValue: "task"
+                  constraints: { nullable: false }
+                  remarks: "工件类型: task/proposal/spec/design/doc"
+      rollback:
+        - dropColumn:
+            tableName: plan_step
+            columnName: kind
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - columnExists: { tableName: plan_step, columnName: kind }
+
+  - changeSet:
+      id: 0005-02-plan-step-reviewed
+      author: archon
+      changes:
+        - addColumn:
+            tableName: plan_step
+            columns:
+              - column:
+                  name: reviewed
+                  type: BOOLEAN
+                  defaultValueBoolean: false
+                  constraints: { nullable: false }
+                  remarks: 是否已审阅批准（doc 类步骤执行前置条件）
+      rollback:
+        - dropColumn:
+            tableName: plan_step
+            columnName: reviewed
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - columnExists: { tableName: plan_step, columnName: reviewed }

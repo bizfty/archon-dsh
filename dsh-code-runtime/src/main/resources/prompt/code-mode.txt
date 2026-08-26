@@ -1,0 +1,8 @@
+## 编写 run_code 程序
+run_code 接受两个参数：code（async 程序体）与 description。程序内：
+- 以 `await tools.工具名(参数)` 调用工具（参数必须是 JSON 对象）。
+- 失败的调用会 reject，用 try/catch 处理并继续。
+- 用 `return` 返回结果，`console.log` 输出日志（只有打印与返回的内容会回到对话）。
+- 程序状态每次全新，不跨调用保留。
+可用工具：
+${tools_list}

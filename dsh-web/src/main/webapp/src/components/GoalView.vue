@@ -10,7 +10,6 @@ const emit = defineEmits<{
 
 const form = reactive({ objective: '', maxRounds: 20 });
 
-// 目标变化 → 同步表单（创建/更新后回显）
 watch(
   () => appState.goal,
   (g) => {
@@ -100,12 +99,13 @@ const phaseTag = (p: string): 'success' | 'warning' | 'info' | 'danger' => {
 
 <style scoped>
 .goal { padding: 30px 24px; max-width: 720px; margin: 0 auto; width: 100%; }
-h1 { font-size: 22px; margin: 0 0 6px; }
-.desc { color: #9a9ba6; font-size: 13px; margin-bottom: 24px; }
-.form { background: #26272e; border: 1px solid #33343d; border-radius: 12px; padding: 18px; }
-.card { background: #26272e; border: 1px solid #33343d; border-radius: 12px; padding: 20px; }
-.status { margin-bottom: 16px; }
-.meta { display: flex; gap: 12px; align-items: center; margin-top: 8px; color: #9a9ba6; font-size: 12px; }
+h1 { font-size: 22px; margin: 0 0 6px; color: var(--dsh-fg-0); }
+.desc { color: var(--dsh-fg-2); font-size: 13px; margin-bottom: 24px; }
+.form { background: var(--dsh-bg-2); border: 1px solid var(--dsh-border); border-radius: 12px; padding: 18px; }
+.card { background: var(--dsh-bg-2); border: 1px solid var(--dsh-border); border-radius: 12px; padding: 20px; }
+.status { margin-bottom: 16px; color: var(--dsh-fg-0); }
+.meta { display: flex; gap: 12px; align-items: center; margin-top: 8px; color: var(--dsh-fg-2); font-size: 12px; flex-wrap: wrap; }
+.dim { color: var(--dsh-fg-3); }
 .blocked { margin-top: 10px; }
 .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
 </style>
