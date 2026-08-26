@@ -118,7 +118,8 @@ public class SessionController {
         List<SessionMessage> all = sessionService.listMessages(SessionId.of(sessionId));
         int from = Math.max(0, all.size() - limit);
         return all.subList(from, all.size()).stream()
-                .map(m -> MessageDto.simple(m.id(), m.role().name().toLowerCase(), m.content()))
+                .map(m -> new MessageDto(m.id(), m.role().name().toLowerCase(), m.content(),
+                        m.toolName(), m.toolCallId(), m.createdAt(), null))
                 .toList();
     }
 

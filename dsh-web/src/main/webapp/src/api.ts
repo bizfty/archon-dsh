@@ -773,11 +773,17 @@ export async function readFile(path: string): Promise<{ path: string; content: s
   });
   return parse<{ path: string; content: string; lines: number; error?: string }>(resp);
 }
-// ---- coder 场景：在线代码开发（/api/code/*，见 CodeController）----
+// ---- coder / self 场景：在线代码开发（/api/code/*，见 CodeController）----
+// scene: 'coder' = 用户工作区（默认根 data/workspace/coder/project 下选项目）；'self' = archon-dsh 源码目录（自我完善）。
+
+export type CodeScene = 'coder' | 'self';
 
 export interface CodeProject {
   name: string;
+  displayName?: string;
   fileCount: number;
+  /** 项目类型：maven / gradle / node / generic。 */
+  projectType?: string;
 }
 
 export interface CodeTreeNode {
@@ -786,6 +792,12 @@ export interface CodeTreeNode {
   type: 'dir' | 'file';
   size?: number;
   children?: CodeTreeNode[];
+  /** 节点类别：dir / structural（Maven 结构目录）/ source-root（源码根）/ package（合并包链）/ chain（普通单链合并）。 */
+  kind?: string;
+  /** package 节点：完整点分包路径（如 com.bizfty.anchon.dsh.api），name 为短包名。 */
+  package?: string;
+  /** chain 节点：完整相对路径标签。 */
+  pathLabel?: string;
 }
 
 export interface CodeFileContent {
@@ -796,15 +808,15 @@ export interface CodeFileContent {
   error?: string;
 }
 
-/** 列出代码项目。 */
-export async function listCodeProjects(): Promise<CodeProject[]> {
-  const resp = await fetch(`${BASE}/api/code/projects`, { headers: headers(false) });
+/** 列出代码项目。self 场景返回单一根项目（源码目录本身）。 */
+export async function listCodeProjects(scene: CodeScene = 'coder'): Promise<CodeProject[]> {
+  const resp = await fetch(`${BASE}/api/code/projects?scene=${encodeURIComponent(scene)}`, { headers: headers(false) });
   return parse<CodeProject[]>(resp);
 }
 
-/** 创建代码项目（根目录下建子目录）。 */
-export async function createCodeProject(name: string): Promise<CodeProject> {
-  const resp = await fetch(`${BASE}/api/code/projects`, {
+/** 创建代码项目（coder 根目录下建子目录；self 场景被后端拒绝）。 */
+export async function createCodeProject(name: string, scene: CodeScene = 'coder'): Promise<CodeProject> {
+  const resp = await fetch(`${BASE}/api/code/projects?scene=${encodeURIComponent(scene)}`, {
     method: 'POST',
     headers: headers(),
     body: JSON.stringify({ name }),
@@ -812,26 +824,29 @@ export async function createCodeProject(name: string): Promise<CodeProject> {
   return parse<CodeProject>(resp);
 }
 
-/** 项目文件树（递归，排除构建产物）。 */
-export async function getCodeTree(project: string): Promise<CodeTreeNode> {
-  const resp = await fetch(`${BASE}/api/code/projects/${encodeURIComponent(project)}/tree`, {
+/** 项目文件树（递归，排除构建产物）。self 场景 project 传 '.'（后端忽略）。 */
+export async function getCodeTree(project: string, scene: CodeScene = 'coder'): Promise<CodeTreeNode> {
+  // self 场景 project 固定为 '.'：路径段中的 '.' 会被 Spring 规范化丢弃导致路由 404，
+  // 用 %2E 编码绕过（self 场景后端忽略 project 值）。
+  const proj = scene === 'self' && project === '.' ? '%2E' : project;
+  const resp = await fetch(`${BASE}/api/code/projects/${encodeURIComponent(proj)}/tree?scene=${encodeURIComponent(scene)}`, {
     headers: headers(false),
   });
   return parse<CodeTreeNode>(resp);
 }
 
 /** 读文件内容。 */
-export async function readCodeFile(project: string, path: string): Promise<CodeFileContent> {
+export async function readCodeFile(project: string, path: string, scene: CodeScene = 'coder'): Promise<CodeFileContent> {
   const resp = await fetch(
-    `${BASE}/api/code/files?project=${encodeURIComponent(project)}&path=${encodeURIComponent(path)}`,
+    `${BASE}/api/code/files?project=${encodeURIComponent(project)}&path=${encodeURIComponent(path)}&scene=${encodeURIComponent(scene)}`,
     { headers: headers(false) },
   );
   return parse<CodeFileContent>(resp);
 }
 
 /** 保存文件（覆盖写，自动建父目录）。 */
-export async function saveCodeFile(project: string, path: string, content: string): Promise<{ path: string; size: number }> {
-  const resp = await fetch(`${BASE}/api/code/files`, {
+export async function saveCodeFile(project: string, path: string, content: string, scene: CodeScene = 'coder'): Promise<{ path: string; size: number }> {
+  const resp = await fetch(`${BASE}/api/code/files?scene=${encodeURIComponent(scene)}`, {
     method: 'PUT',
     headers: headers(),
     body: JSON.stringify({ project, path, content }),
@@ -840,8 +855,8 @@ export async function saveCodeFile(project: string, path: string, content: strin
 }
 
 /** 新建文件（不覆盖已存在）。 */
-export async function createCodeFile(project: string, path: string): Promise<{ path: string }> {
-  const resp = await fetch(`${BASE}/api/code/files`, {
+export async function createCodeFile(project: string, path: string, scene: CodeScene = 'coder'): Promise<{ path: string }> {
+  const resp = await fetch(`${BASE}/api/code/files?scene=${encodeURIComponent(scene)}`, {
     method: 'POST',
     headers: headers(),
     body: JSON.stringify({ project, path }),
@@ -850,9 +865,9 @@ export async function createCodeFile(project: string, path: string): Promise<{ p
 }
 
 /** 删除文件（或空目录）。 */
-export async function deleteCodeFile(project: string, path: string): Promise<{ deleted: string }> {
+export async function deleteCodeFile(project: string, path: string, scene: CodeScene = 'coder'): Promise<{ deleted: string }> {
   const resp = await fetch(
-    `${BASE}/api/code/files?project=${encodeURIComponent(project)}&path=${encodeURIComponent(path)}`,
+    `${BASE}/api/code/files?project=${encodeURIComponent(project)}&path=${encodeURIComponent(path)}&scene=${encodeURIComponent(scene)}`,
     { method: 'DELETE', headers: headers(false) },
   );
   return parse<{ deleted: string }>(resp);

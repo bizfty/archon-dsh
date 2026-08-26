@@ -150,3 +150,60 @@ html, body, #app {
 :root[data-theme="paper"] ::-webkit-scrollbar-thumb {
   background: var(--dsh-border-strong);
 }
+/* ================================================================
+   Markdown 文档渲染（.md 文件查看/预览共用）
+   ================================================================ */
+.md-doc {
+  line-height: 1.7;
+  color: var(--dsh-fg-0);
+  font-size: 14px;
+  overflow-wrap: break-word;
+}
+.md-doc h1, .md-doc h2, .md-doc h3, .md-doc h4, .md-doc h5, .md-doc h6 {
+  margin: 1.1em 0 0.45em;
+  line-height: 1.35;
+  color: var(--dsh-fg-0);
+}
+.md-doc h1 { font-size: 1.6em; border-bottom: 1px solid var(--dsh-border); padding-bottom: .3em; }
+.md-doc h2 { font-size: 1.35em; border-bottom: 1px solid var(--dsh-border); padding-bottom: .25em; }
+.md-doc h3 { font-size: 1.18em; }
+.md-doc h4 { font-size: 1.05em; }
+.md-doc p { margin: 0.6em 0; }
+.md-doc a { color: var(--dsh-accent); text-decoration: underline; }
+.md-doc a:hover { opacity: .85; }
+.md-doc ul, .md-doc ol { margin: 0.5em 0; padding-left: 1.6em; }
+.md-doc li { margin: 0.25em 0; }
+.md-doc li > input[type="checkbox"] { margin-right: 6px; }
+.md-doc blockquote {
+  margin: 0.8em 0;
+  padding: 4px 14px;
+  border-left: 3px solid var(--dsh-accent);
+  background: var(--dsh-bg-2);
+  color: var(--dsh-fg-2);
+  border-radius: 0 6px 6px 0;
+}
+.md-doc code {
+  font-family: ui-monospace, 'JetBrains Mono', Consolas, monospace;
+  background: var(--dsh-code-bg);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.9em;
+  color: var(--dsh-fg-1);
+}
+.md-doc pre {
+  background: var(--dsh-code-bg);
+  border: 1px solid var(--dsh-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  overflow: auto;
+  margin: 0.8em 0;
+}
+.md-doc pre code { background: transparent; padding: 0; border-radius: 0; }
+.md-doc table { border-collapse: collapse; margin: 0.8em 0; width: 100%; }
+.md-doc th, .md-doc td { border: 1px solid var(--dsh-border); padding: 6px 12px; text-align: left; }
+.md-doc th { background: var(--dsh-bg-2); font-weight: 600; }
+.md-doc tr:nth-child(even) td { background: var(--dsh-bg-1); }
+.md-doc hr { border: none; border-top: 1px solid var(--dsh-border); margin: 1.2em 0; }
+.md-doc img { max-width: 100%; border-radius: 6px; }
+.md-doc strong { color: var(--dsh-fg-0); }
+.md-doc .hljs { background: transparent !important; }

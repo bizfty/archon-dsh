@@ -3,6 +3,7 @@
 // 轻量自包含：不引入 Monaco，textarea 编辑 + highlight.js 预览切换。
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
 import hljs from 'highlight.js';
+import { renderMarkdown } from '../render';
 import {
   listCodeProjects, createCodeProject, getCodeTree, readCodeFile,
   saveCodeFile, createCodeFile, deleteCodeFile,
@@ -10,6 +11,15 @@ import {
 } from '../api';
 
 const emit = defineEmits<{ (e: 'close'): void }>();
+
+// ---- 场景 ----
+// scene: 'coder' = 用户工作区（默认根 data/workspace/coder/project 下选择项目）；
+//        'self'  = 自我完善：直接操作 archon-dsh 源码目录（project 固定为 '.'）。
+const props = withDefaults(defineProps<{ scene?: 'coder' | 'self'; embedded?: boolean }>(), { scene: 'coder', embedded: false });
+const isSelf = computed(() => props.scene === 'self');
+/** self 场景固定 project 名（后端忽略 project 参数，落到源码根）。 */
+const SELF_PROJECT = '.';
+const sceneLabel = computed(() => (isSelf.value ? '🧬 自我完善 · archon-dsh 源码' : '💻 代码开发'));
 
 // ---- 状态 ----
 const projects = ref<CodeProject[]>([]);
@@ -25,6 +35,8 @@ const loadingTree = ref(false);
 const previewMode = ref(false);
 const notice = ref('');
 const statusText = ref('就绪');
+/** 目录展开状态（按 path 持久保存，避免 rebuildFlat 重建时丢失）。 */
+const expandedDirs = ref<Set<string>>(new Set());
 
 const newProjectDialog = ref(false);
 const newProjectName = ref('');
@@ -37,8 +49,11 @@ interface FlatNode {
   type: 'dir' | 'file';
   depth: number;
   size?: number;
-  children?: FlatNode[];
+  children?: CodeTreeNode[];
   expanded: boolean;
+  kind?: string;
+  package?: string;
+  pathLabel?: string;
 }
 
 // ---- 语言映射（扩展名 → highlight.js 语言）----
@@ -61,15 +76,27 @@ function langFor(path: string): string {
   return LANG_BY_EXT[ext] || 'plaintext';
 }
 
+/** 扩展名判断：.md / .markdown → 渲染为 markdown 文档。 */
+function isMarkdownPath(path: string): boolean {
+  const lower = path.toLowerCase();
+  return lower.endsWith('.md') || lower.endsWith('.markdown');
+}
+
 // ---- 文件树 ----
 function flatten(root: CodeTreeNode | null): FlatNode[] {
   if (!root || !root.children) return [];
   const out: FlatNode[] = [];
   const walk = (nodes: CodeTreeNode[], depth: number) => {
     for (const n of nodes) {
-      const fn: FlatNode = { ...n, depth, expanded: depth === 0 };
+      // 首次遇到目录：顶层、Maven 结构目录（src/src/main…）与源码根（src/main/java）默认展开；
+      // 包节点（package）默认折叠，点击展开看文件
+      if (n.type === 'dir' && !expandedDirs.value.has(n.path)
+          && (depth === 0 || n.kind === 'structural' || n.kind === 'source-root')) {
+        expandedDirs.value.add(n.path);
+      }
+      const fn: FlatNode = { ...n, depth, expanded: expandedDirs.value.has(n.path) };
       out.push(fn);
-      if (n.type === 'dir' && n.children) walk(n.children, depth + 1);
+      if (n.type === 'dir' && fn.expanded && n.children) walk(n.children, depth + 1);
     }
   };
   walk(root.children, 0);
@@ -78,7 +105,7 @@ function flatten(root: CodeTreeNode | null): FlatNode[] {
 
 async function loadProjects() {
   try {
-    projects.value = await listCodeProjects();
+    projects.value = await listCodeProjects(props.scene);
     if (!currentProject.value && projects.value.length > 0) {
       currentProject.value = projects.value[0].name;
       await loadTree();
@@ -94,7 +121,8 @@ async function loadTree() {
   if (!currentProject.value) { treeRoot.value = null; flatTree.value = []; return; }
   loadingTree.value = true;
   try {
-    treeRoot.value = await getCodeTree(currentProject.value);
+    treeRoot.value = await getCodeTree(currentProject.value, props.scene);
+    expandedDirs.value = new Set<string>();
     flatTree.value = flatten(treeRoot.value);
   } catch (e: any) {
     notice.value = '加载文件树失败: ' + (e.message || e);
@@ -117,21 +145,62 @@ async function openFile(node: FlatNode) {
     if (!ok) return;
   }
   try {
-    const f = await readCodeFile(currentProject.value, node.path);
+    const f = await readCodeFile(currentProject.value, node.path, props.scene);
     if (f.error) { notice.value = f.error; return; }
     currentPath.value = f.path;
     currentContent.value = f.content;
     currentLines.value = f.lines;
     dirty.value = false;
-    previewMode.value = false;
+    // md 文件打开后直接进入渲染预览（文档模式）；其他文件进入编辑
+    previewMode.value = isMarkdownPath(f.path);
     statusText.value = `已打开 ${f.path} · ${f.lines} 行`;
   } catch (e: any) {
     notice.value = '打开失败: ' + (e.message || e);
   }
 }
 
+/** 树节点图标：包节点📦 / 源码根🗂 / 单链🗃 / 普通目录📁📂 / 文件📄。 */
+function treeIcon(node: FlatNode): string {
+  if (node.type !== 'dir') return '📄';
+  if (node.kind === 'package') return '📦';
+  if (node.kind === 'chain') return '🗃';
+  if (node.kind === 'source-root') return '🗂';
+  return node.expanded ? '📂' : '📁';
+}
+
+/** 树节点 title：package 显示完整点分包路径，chain 显示完整相对路径，其余用 path。 */
+function treeTitle(node: FlatNode): string {
+  if (node.kind === 'package') return node.package || node.path;
+  if (node.kind === 'chain') return node.pathLabel || node.path;
+  return node.path;
+}
+
+/** 树节点 class：按 kind 追加样式（短包名高亮 / 源码根加粗等）。 */
+function nodeClass(node: FlatNode): Record<string, boolean> {
+  return {
+    'is-file': node.type === 'file',
+    'is-active': node.path === currentPath.value,
+    'is-dir': node.type === 'dir',
+    'is-package': node.kind === 'package',
+    'is-chain': node.kind === 'chain',
+    'is-source-root': node.kind === 'source-root',
+    'is-structural': node.kind === 'structural',
+  };
+}
+
+/** 项目类型徽标：maven→Maven / gradle→Gradle / node→Node / 其他→空。 */
+function typeBadge(t?: string): string {
+  const map: Record<string, string> = { maven: 'Maven', gradle: 'Gradle', node: 'Node' };
+  const label = t ? map[t] : '';
+  return label ? ` · ${label}` : '';
+}
+
 function toggleDir(node: FlatNode) {
-  node.expanded = !node.expanded;
+  if (expandedDirs.value.has(node.path)) {
+    expandedDirs.value.delete(node.path);
+  } else {
+    expandedDirs.value.add(node.path);
+  }
   rebuildFlat();
 }
 
@@ -140,7 +209,7 @@ function rebuildFlat() {
   const out: FlatNode[] = [];
   const walk = (nodes: CodeTreeNode[], depth: number) => {
     for (const n of nodes) {
-      const fn: FlatNode = { ...n, depth, expanded: depth === 0 };
+      const fn: FlatNode = { ...n, depth, expanded: expandedDirs.value.has(n.path) };
       out.push(fn);
       if (n.type === 'dir' && fn.expanded && n.children) walk(n.children, depth + 1);
     }
@@ -177,7 +246,7 @@ async function save() {
   if (!currentProject.value || !currentPath.value || !dirty.value) return;
   saving.value = true;
   try {
-    await saveCodeFile(currentProject.value, currentPath.value, currentContent.value);
+    await saveCodeFile(currentProject.value, currentPath.value, currentContent.value, props.scene);
     dirty.value = false;
     statusText.value = `已保存 ${currentPath.value}`;
   } catch (e: any) {
@@ -190,9 +259,9 @@ async function save() {
 // ---- 新建 ----
 async function doCreateProject() {
   const name = newProjectName.value.trim();
-  if (!name) return;
+  if (!name || isSelf.value) return;
   try {
-    await createCodeProject(name);
+    await createCodeProject(name, props.scene);
     newProjectDialog.value = false;
     newProjectName.value = '';
     currentProject.value = name;
@@ -207,7 +276,7 @@ async function doCreateFile() {
   const path = newFilePath.value.trim();
   if (!path || !currentProject.value) return;
   try {
-    await createCodeFile(currentProject.value, path);
+    await createCodeFile(currentProject.value, path, props.scene);
     newFileDialog.value = false;
     newFilePath.value = '';
     await loadTree();
@@ -223,7 +292,7 @@ async function doDeleteCurrent() {
   if (!currentProject.value || !currentPath.value) return;
   if (!window.confirm(`删除 ${currentPath.value}？此操作不可恢复。`)) return;
   try {
-    await deleteCodeFile(currentProject.value, currentPath.value);
+    await deleteCodeFile(currentProject.value, currentPath.value, props.scene);
     currentPath.value = '';
     currentContent.value = '';
     dirty.value = false;
@@ -237,6 +306,14 @@ async function doDeleteCurrent() {
 // ---- 预览 ----
 const previewHtml = computed(() => {
   if (!currentContent.value) return '';
+  // md 文件 → 渲染 markdown 文档（净化 + 高亮，复用 renderMarkdown）
+  if (isMarkdownPath(currentPath.value)) {
+    try {
+      return renderMarkdown(currentContent.value);
+    } catch {
+      return '';
+    }
+  }
   const lang = langFor(currentPath.value);
   try {
     if (lang && hljs.getLanguage(lang)) {
@@ -259,6 +336,26 @@ function onEditorScroll() {
   const ta = editorRef.value;
   if (gutter && ta) gutter.scrollTop = ta.scrollTop;
 }
+
+// ---- 场景切换：coder ↔ self 切换时组件复用（ToolsPage 中 v-else-if 保持挂载），
+// 必须监听 scene 重新加载对应场景的项目列表与文件树，否则文件树停留在旧场景 ----
+watch(
+  () => props.scene,
+  async () => {
+    // 场景切换 = 切换工作区：清空当前编辑状态与项目选择，按新场景重新加载
+    currentProject.value = '';
+    currentPath.value = '';
+    currentContent.value = '';
+    currentLines.value = 0;
+    dirty.value = false;
+    previewMode.value = false;
+    statusText.value = '就绪';
+    treeRoot.value = null;
+    flatTree.value = [];
+    expandedDirs.value = new Set<string>();
+    await loadProjects();
+  },
+);
 
 // ---- 生命周期 ----
 const gutterRef = ref<HTMLDivElement | null>(null);
@@ -283,22 +380,24 @@ defineExpose({});
 </script>
 
 <template>
-  <div class="code-view">
+  <div class="code-view" :class="{ embedded: props.embedded }">
     <!-- 顶部工具栏 -->
     <div class="code-toolbar">
-      <el-button size="small" text class="back-btn" @click="emit('close')" title="返回对话">
+      <el-button v-if="!props.embedded" size="small" text class="back-btn" @click="emit('close')" title="返回对话">
         ← 对话
       </el-button>
+      <span v-if="isSelf" class="scene-badge" :title="'root: ' + (projects[0]?.displayName || '')">{{ sceneLabel }}</span>
       <el-select
+        v-else
         v-model="currentProject"
         size="small"
         class="project-select"
         placeholder="选择项目"
         @change="onProjectChange"
       >
-        <el-option v-for="p in projects" :key="p.name" :label="`${p.name} (${p.fileCount})`" :value="p.name" />
+        <el-option v-for="p in projects" :key="p.name" :label="`${p.name}${typeBadge(p.projectType)} (${p.fileCount})`" :value="p.name" />
       </el-select>
-      <el-button size="small" @click="newProjectDialog = true">＋ 项目</el-button>
+      <el-button v-if="!isSelf" size="small" @click="newProjectDialog = true">＋ 项目</el-button>
       <el-button size="small" :disabled="!currentProject" @click="newFileDialog = true">＋ 文件</el-button>
       <el-button size="small" :disabled="!currentPath" @click="doDeleteCurrent">🗑 删除</el-button>
       <el-button size="small" @click="loadTree">⟳ 刷新</el-button>
@@ -331,12 +430,12 @@ defineExpose({});
           v-for="node in flatTree"
           :key="node.path"
           class="tree-node"
-          :class="{ 'is-file': node.type === 'file', 'is-active': node.path === currentPath, 'is-dir': node.type === 'dir' }"
+          :class="nodeClass(node)"
           :style="{ paddingLeft: (8 + node.depth * 16) + 'px' }"
           @click="node.type === 'dir' ? toggleDir(node) : openFile(node)"
         >
-          <span class="tree-icon">{{ node.type === 'dir' ? (node.expanded ? '📂' : '📁') : '📄' }}</span>
-          <span class="tree-name" :title="node.path">{{ node.name }}</span>
+          <span class="tree-icon">{{ treeIcon(node) }}</span>
+          <span class="tree-name" :title="treeTitle(node)">{{ node.name }}</span>
           <span v-if="node.type === 'file' && node.size !== undefined" class="tree-size">{{ node.size }}</span>
         </div>
       </div>
@@ -345,12 +444,13 @@ defineExpose({});
       <div class="code-editor">
         <div v-if="!currentPath" class="editor-empty">
           <div class="empty-icon">💻</div>
-          <div class="empty-title">在线代码开发</div>
-          <div class="empty-sub">选择一个项目与文件开始编辑，或新建项目 / 文件</div>
+          <div class="empty-title">{{ isSelf ? '🧬 自我完善' : '在线代码开发' }}</div>
+          <div class="empty-sub">{{ isSelf ? '直接浏览 archon-dsh 源码并编辑保存（新建 / 删除可用）' : '选择一个项目与文件开始编辑，或新建项目 / 文件' }}</div>
+          <div class="empty-hint">自动识别 Maven/Gradle 源码根（src/main/java、src/test/java、resources…），深层包目录合并为短包名</div>
         </div>
         <template v-else>
           <div class="editor-head">
-            <span class="file-path">{{ currentProject }} / {{ currentPath }}</span>
+            <span class="file-path">{{ isSelf ? currentPath : currentProject + ' / ' + currentPath }}</span>
             <el-tag size="small" :type="dirty ? 'warning' : 'success'" effect="plain">
               {{ dirty ? '未保存' : '已保存' }}
             </el-tag>
@@ -367,7 +467,9 @@ defineExpose({});
               @scroll="onEditorScroll"
             />
             <div v-else class="editor-preview">
-              <pre><code v-html="previewHtml"></code></pre>
+              <!-- md 文件 → markdown 文档渲染；其他文件 → highlight.js 高亮 -->
+              <div v-if="isMarkdownPath(currentPath)" class="md-doc" v-html="previewHtml"></div>
+              <pre v-else><code v-html="previewHtml"></code></pre>
             </div>
           </div>
         </template>
@@ -422,6 +524,8 @@ defineExpose({});
   overflow: hidden;
 }
 
+.code-view.embedded { border: none; border-radius: 0; }
+
 .code-toolbar {
   display: flex;
   align-items: center;
@@ -433,6 +537,16 @@ defineExpose({});
 }
 
 .project-select { width: 220px; }
+
+.scene-badge {
+  font-size: 12px;
+  color: var(--dsh-accent);
+  background: var(--dsh-accent-soft);
+  border: 1px solid var(--dsh-border);
+  border-radius: 6px;
+  padding: 2px 10px;
+  white-space: nowrap;
+}
 
 .toolbar-spacer { flex: 1; }
 
@@ -467,9 +581,17 @@ defineExpose({});
 
 .tree-node:hover { background: var(--dsh-bg-3); }
 .tree-node.is-active { background: var(--dsh-accent-soft); color: var(--dsh-accent); }
+.tree-node.is-source-root > .tree-name { font-weight: 600; }
+.tree-node.is-package > .tree-name {
+  color: var(--dsh-accent);
+  font-family: ui-monospace, 'JetBrains Mono', Consolas, monospace;
+}
+.tree-node.is-chain > .tree-name { color: var(--dsh-fg-2); font-style: italic; }
+.tree-node.is-structural > .tree-name { color: var(--dsh-fg-2); }
 .tree-icon { flex: none; }
 .tree-name { overflow: hidden; text-overflow: ellipsis; }
 .tree-size { margin-left: auto; color: var(--dsh-fg-3); font-size: 11px; }
+.empty-hint { font-size: 12px; color: var(--dsh-fg-3); max-width: 420px; text-align: center; }
 
 .code-editor {
   flex: 1;
@@ -562,6 +684,14 @@ defineExpose({});
   font-family: ui-monospace, 'JetBrains Mono', Consolas, monospace;
   font-size: 13px;
   line-height: 20px;
+}
+
+/* md 文档渲染：内边距 + 代码块间距（全局 .md-doc 样式在 styles.css） */
+.editor-preview .md-doc {
+  padding: 4px 8px 12px;
+}
+.editor-preview .md-doc pre {
+  margin: 0.8em 0;
 }
 
 .editor-preview code { background: transparent !important; padding: 0 !important; }

@@ -6,19 +6,32 @@ import { renderMarkdown, escapeHtml } from '../render';
 import { answerQuestion, pendingQuestions, readFile } from '../api';
 
 /** 文件查看弹窗（点击工具行路径触发）。 */
-const fileDialog = ref<{ path: string; content: string; loading: boolean; error: string } | null>(null);
+const fileDialog = ref<{ path: string; content: string; loading: boolean; error: string; isMarkdown: boolean } | null>(null);
+
+/** 扩展名判断：.md / .markdown → 渲染为 markdown 文档。 */
+function isMarkdownPath(path: string): boolean {
+  const lower = path.toLowerCase();
+  return lower.endsWith('.md') || lower.endsWith('.markdown');
+}
+
+/** md 文件渲染后的 HTML（净化 + 高亮，复用 renderMarkdown）。 */
+const fileMdHtml = computed(() => {
+  const d = fileDialog.value;
+  if (!d || !d.isMarkdown || d.error) return '';
+  return renderMarkdown(d.content);
+});
 
 async function openFile(path: string): Promise<void> {
-  fileDialog.value = { path, content: '', loading: true, error: '' };
+  fileDialog.value = { path, content: '', loading: true, error: '', isMarkdown: isMarkdownPath(path) };
   try {
     const res = await readFile(path);
     if (res.error) {
-      fileDialog.value = { path, content: '', loading: false, error: res.error };
+      fileDialog.value = { path, content: '', loading: false, error: res.error, isMarkdown: isMarkdownPath(path) };
     } else {
-      fileDialog.value = { path, content: res.content, loading: false, error: '' };
+      fileDialog.value = { path, content: res.content, loading: false, error: '', isMarkdown: isMarkdownPath(path) };
     }
   } catch (e) {
-    fileDialog.value = { path, content: '', loading: false, error: (e as Error).message };
+    fileDialog.value = { path, content: '', loading: false, error: (e as Error).message, isMarkdown: isMarkdownPath(path) };
   }
 }
 
@@ -354,7 +367,9 @@ async function submitAnswer(): Promise<void> {
       <div v-if="fileDialog" class="file-dialog">
         <el-alert v-if="fileDialog.error" type="error" :title="fileDialog.error" :closable="false" />
         <div v-loading="fileDialog.loading" class="file-content">
-          <pre v-if="!fileDialog.error">{{ fileDialog.content }}</pre>
+          <!-- md 文件 → 渲染 markdown 文档；其他 → 纯文本 -->
+          <div v-if="!fileDialog.error && fileDialog.isMarkdown" class="md-doc file-md" v-html="fileMdHtml"></div>
+          <pre v-else-if="!fileDialog.error">{{ fileDialog.content }}</pre>
         </div>
       </div>
     </el-dialog>
@@ -401,6 +416,15 @@ async function submitAnswer(): Promise<void> {
   margin: 0; background: var(--dsh-code-bg); border-radius: 8px;
   padding: 12px; font-size: 12.5px; max-height: 60vh; overflow: auto;
   color: var(--dsh-fg-1); white-space: pre-wrap; word-break: break-word;
+}
+/* md 渲染区域：滚动 + 背景 */
+.file-md {
+  background: var(--dsh-bg-0);
+  border: 1px solid var(--dsh-border);
+  border-radius: 8px;
+  padding: 16px 20px;
+  max-height: 60vh;
+  overflow: auto;
 }
 
 /* Bash 行（对齐官方 BashRow：标题 + 摘要 + 展开输出） */

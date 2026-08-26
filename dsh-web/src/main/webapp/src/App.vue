@@ -7,7 +7,7 @@ import Composer from './components/Composer.vue';
 import GoalView from './components/GoalView.vue';
 import TrajectoryView from './components/TrajectoryView.vue';
 import PlanView from './components/PlanView.vue';
-import CodeView from './components/CodeView.vue';
+import ToolsPage from './components/ToolsPage.vue';
 import {
   appState, pushNotice, initTheme, setTheme, setModel, setPlanMode,
   THEMES, type ThemeKey, toggleSidebar,
@@ -16,10 +16,9 @@ import {
   listSessions, createSession, listMessages, deleteSession,
   chatStream, sendChat, listSubagents, sendSubagentMessage,
   getGoal, createGoal, updateGoal, pendingQuestions,
-  getTrajectory, listModels, listJobs, killJob,
+  getTrajectory, listModels,
   getPlanMode, enterPlanMode, exitPlanMode, submitPlanMode,
-  listSkills,
-  type SseEvent, type SkillInfo,
+  type SseEvent,
 } from './api';
 import { WsClient, connectionLabel, type SessionFrame } from './ws';
 
@@ -42,6 +41,12 @@ const SIDEBAR_COLLAPSED = 56;
 
 const sidebarWidth = computed(() =>
   appState.sidebarCollapsed ? SIDEBAR_COLLAPSED : SIDEBAR_EXPANDED,
+);
+
+/** 工具类视图：以独立页面渲染（保留侧边栏，无 main 页签/输入 dock）。 */
+const isToolView = computed(() =>
+  appState.view === 'mcp' || appState.view === 'skills' || appState.view === 'jobs'
+  || appState.view === 'expert' || appState.view === 'coder' || appState.view === 'self',
 );
 
 const currentTitle = computed(() => {
@@ -91,7 +96,6 @@ async function openSession(id: string): Promise<void> {
   }
   await refreshGoal(id);
   await refreshSubagents(id);
-  await refreshJobs();
   await refreshPlan(id);
 }
 
@@ -213,7 +217,6 @@ function finalize(): void {
     loadSessions().catch(() => undefined);
     refreshGoal(id).catch(() => undefined);
     refreshSubagents(id).catch(() => undefined);
-    refreshJobs().catch(() => undefined);
     refreshPlan(id).catch(() => undefined);
   }
 }
@@ -232,110 +235,9 @@ async function refreshSubagents(id: string): Promise<void> {
   }
 }
 
-// ---- 后台任务（⚙️ 任务 tab）----
-let jobsTimer: number | null = null;
-
-/** 运行中的后台任务数（任务 tab 徽标）。 */
-const runningJobCount = computed(() => appState.jobs.filter((j) => j.status === 'running').length);
-
-async function refreshJobs(): Promise<void> {
-  const id = appState.sessionId;
-  if (!id) return;
-  try {
-    appState.jobs = await listJobs(id);
-    appState.jobsPhase = 'ready';
-    appState.jobsError = null;
-  } catch (e) {
-    appState.jobsError = (e as Error).message;
-  }
-}
-
-/** 工具面板技能列表（惰性加载一次）。 */
-const toolSkills = ref<SkillInfo[]>([]);
-const toolSkillsLoading = ref(false);
-const toolSkillsError = ref<string | null>(null);
-
-async function loadToolSkills(): Promise<void> {
-  if (toolSkills.value.length > 0 || toolSkillsLoading.value) return;
-  toolSkillsLoading.value = true;
-  toolSkillsError.value = null;
-  try {
-    toolSkills.value = await listSkills();
-  } catch (e) {
-    toolSkillsError.value = (e as Error).message;
-  } finally {
-    toolSkillsLoading.value = false;
-  }
-}
-
-/** 侧边栏「工具」菜单 → 视图切换（javaai 场景入口，与会话列表同层）。 */
+/** 侧边栏「工具」菜单 → 切换视图（工具为独立页面，见 ToolsPage.vue）。 */
 function onSelectTool(id: string): void {
-  if (id === 'coder') {
-    appState.view = 'coder';
-    return;
-  }
-  if (id === 'jobs') {
-    appState.view = 'jobs';
-    void refreshJobs();
-    startJobsPolling();
-    return;
-  }
-  if (id === 'skills') {
-    appState.view = 'skills';
-    void loadToolSkills();
-    return;
-  }
-  // chat / mcp / expert 等常规视图直接切换
-  appState.view = id as 'chat' | 'plan' | 'goal' | 'trajectory' | 'jobs' | 'coder' | 'mcp' | 'skills' | 'expert';
-}
-
-function switchJobs(): void {
-  appState.view = 'jobs';
-  void refreshJobs();
-  startJobsPolling();
-}
-
-function startJobsPolling(): void {
-  stopJobsPolling();
-  jobsTimer = window.setInterval(() => void refreshJobs(), 3000);
-}
-
-function stopJobsPolling(): void {
-  if (jobsTimer !== null) {
-    window.clearInterval(jobsTimer);
-    jobsTimer = null;
-  }
-}
-
-async function doKillJob(jobId: string): Promise<void> {
-  const id = appState.sessionId;
-  if (!id) return;
-  try {
-    await killJob(id, jobId);
-    await refreshJobs();
-  } catch (e) {
-    pushNotice('终止任务失败: ' + (e as Error).message);
-  }
-}
-
-function fmtDuration(ms: number): string {
-  if (ms < 1000) return ms + 'ms';
-  const s = Math.floor(ms / 1000);
-  if (s < 60) return s + 's';
-  const m = Math.floor(s / 60);
-  const rest = s % 60;
-  return rest === 0 ? m + 'm' : `${m}m ${rest}s`;
-}
-
-/** 任务状态徽标文案（对齐官方 running/done/failed/killed）。 */
-function jobStatusText(j: { status: string }): string {
-  switch (j.status) {
-    case 'running': return 'running';
-    case 'done': return 'done';
-    case 'failed': return 'failed';
-    case 'killed': return 'killed';
-    default: return j.status;
-  }
+  appState.view = id as 'chat' | 'plan' | 'goal' | 'trajectory' | 'jobs' | 'coder' | 'self' | 'mcp' | 'skills' | 'expert';
 }
 
 // ---- 常驻 WebSocket 下行（对齐官方：退避重连 + connected/reconnecting）----
@@ -362,7 +264,6 @@ function onWsReconnected(): void {
   if (id) {
     listMessages(id).then((ms) => { appState.messages = ms as never[]; }).catch(() => undefined);
     refreshSubagents(id).catch(() => undefined);
-    refreshJobs().catch(() => undefined);
     refreshPlan(id).catch(() => undefined);
   }
 }
@@ -425,7 +326,6 @@ function handleEvent(eventType: string, data: Record<string, unknown>): void {
           loadSessions().catch(() => undefined);
           refreshGoal(tid).catch(() => undefined);
           refreshSubagents(tid).catch(() => undefined);
-          refreshJobs().catch(() => undefined);
           refreshPlan(tid).catch(() => undefined);
         }
       }
@@ -608,11 +508,6 @@ async function doSubmitPlan(): Promise<void> {
 
 watch(() => appState.model, onModelChange);
 
-// 离开任务 tab 停止轮询（避免后台空转）；切到任务 tab 由 switchJobs 启动。
-watch(() => appState.view, (v) => {
-  if (v !== 'jobs') stopJobsPolling();
-});
-
 onMounted(() => {
   initTheme();
   void loadSessions();
@@ -631,7 +526,6 @@ onMounted(() => {
 onBeforeUnmount(() => {
   wsClient?.close();
   wsClient = null;
-  stopJobsPolling();
 });
 </script>
 
@@ -640,7 +534,9 @@ onBeforeUnmount(() => {
     <aside class="sidebar" :style="{ width: sidebarWidth + 'px', minWidth: sidebarWidth + 'px' }">
       <Sidebar @new-session="newSession" @select-session="openSession" @select-tool="onSelectTool" />
     </aside>
-    <main class="main">
+    <!-- 工具独立页面（保留侧边栏，右侧为独立页面布局：无 main 页签/输入 dock） -->
+    <ToolsPage v-if="isToolView" :view="appState.view" @back="appState.view = 'chat'" />
+    <main v-else class="main">
       <header class="header">
         <div class="breadcrumb">
           <span class="dim">DSH Java</span>
@@ -696,8 +592,6 @@ onBeforeUnmount(() => {
         <button class="tab" :class="{ active: appState.view === 'plan' }" @click="switchPlan">📋 计划</button>
         <button class="tab" :class="{ active: appState.view === 'goal' }" @click="switchGoal">🎯 目标</button>
         <button class="tab" :class="{ active: appState.view === 'trajectory' }" @click="switchTrajectory">🛤 轨迹</button>
-        <button class="tab" :class="{ active: appState.view === 'jobs' }" @click="switchJobs">⚙️ 任务</button>
-        <button class="tab" :class="{ active: appState.view === 'coder' }" @click="onSelectTool('coder')">💻 代码</button>
       </nav>
       <!-- 消息流主列（常驻 dock 之上；对话/计划/目标/轨迹均为 body 视图切换） -->
       <div class="body">
@@ -736,66 +630,7 @@ onBeforeUnmount(() => {
         </div>
         <GoalView v-show="appState.view === 'goal'" @create="doGoalCreate" @update="doGoalUpdate" />
         <TrajectoryView v-show="appState.view === 'trajectory'" />
-        <div v-show="appState.view === 'jobs'" class="jobs-view">
-          <div class="jobs-view-head">
-            <b>⚙️ 后台任务（当前会话）</b>
-            <span class="jobs-hint">每 3s 自动刷新 · 重启后清空（进程内存）</span>
-            <el-button size="small" @click="refreshJobs">刷新</el-button>
-          </div>
-          <el-alert v-if="appState.jobsError" type="error" :title="appState.jobsError" :closable="false" />
-          <div v-if="appState.jobs.length === 0 && appState.jobsPhase === 'ready'" class="jobs-empty">
-            暂无后台任务
-          </div>
-          <div v-loading="appState.jobsPhase === 'pending'" class="jobs-view-list">
-            <div v-for="j in appState.jobs" :key="j.id" class="job-item" :class="j.status">
-              <div class="job-line">
-                <span class="job-kind">{{ j.kind }}</span>
-                <code class="job-cmd" :title="j.command">{{ j.command }}</code>
-                <span class="job-status">{{ jobStatusText(j) }}</span>
-                <span class="job-duration">{{ fmtDuration(j.durationMs) }}</span>
-              </div>
-              <div class="job-meta" v-if="j.status !== 'running' && j.exitCode !== null">
-                exit {{ j.exitCode }}
-              </div>
-              <div class="job-actions" v-if="j.status === 'running'">
-                <el-button size="small" type="danger" plain @click="doKillJob(j.id)">终止</el-button>
-              </div>
-            </div>
-          </div>
-        </div>
-        <!-- 技能面板（侧边栏「工具」→ ⚙️ 技能） -->
-        <div v-show="appState.view === 'skills'" class="tools-view skills-view">
-          <div class="tools-view-head">
-            <b>⚙️ 技能（Skill）</b>
-            <span class="jobs-hint">可在对话中通过 /skill 或 + 按钮调用</span>
-            <el-button size="small" @click="loadToolSkills">刷新</el-button>
-          </div>
-          <el-alert v-if="toolSkillsError" type="error" :title="toolSkillsError" :closable="false" />
-          <div v-loading="toolSkillsLoading" class="skill-grid">
-            <div v-for="sk in toolSkills" :key="sk.name" class="skill-card">
-              <div class="skill-name">⚙️ {{ sk.name }}</div>
-              <div class="skill-desc">{{ sk.description }}</div>
-              <div class="skill-tools" v-if="sk.tools"><code>{{ sk.tools }}</code></div>
-            </div>
-            <div v-if="toolSkills.length === 0 && !toolSkillsLoading && !toolSkillsError" class="tools-empty">
-              暂无可用技能
-            </div>
-          </div>
-        </div>
-        <!-- MCP 面板（侧边栏「工具」→ 🔗 MCP，待接入） -->
-        <div v-show="appState.view === 'mcp'" class="tools-view placeholder-view">
-          <div class="placeholder-icon">🔗</div>
-          <div class="placeholder-title">MCP 工具</div>
-          <div class="placeholder-desc">模型上下文协议（Model Context Protocol）工具市场，规划中，敬请期待。</div>
-        </div>
-        <!-- 专家套件面板（侧边栏「工具」→ 🧩 专家套件，待接入） -->
-        <div v-show="appState.view === 'expert'" class="tools-view placeholder-view">
-          <div class="placeholder-icon">🧩</div>
-          <div class="placeholder-title">专家套件</div>
-          <div class="placeholder-desc">领域专家技能组合包，规划中，敬请期待。</div>
-        </div>
       </div>
-      <CodeView v-show="appState.view === 'coder'" @close="appState.view = 'chat'" />
       <!-- 对话输入 dock（常驻，不属于任何 tab；对齐官方 conversation.input.dock） -->
       <div class="composer-dock">
         <Composer
@@ -911,35 +746,6 @@ onBeforeUnmount(() => {
 .subagent-chip .name { color: var(--dsh-fg-0); }
 .subagent-chip .meta { color: var(--dsh-fg-2); font-size: 11px; }
 
-/* 后台任务 tab 视图 */
-.jobs-view { flex: 1; display: flex; flex-direction: column; gap: 10px; padding: 16px 20px; overflow-y: auto; }
-.jobs-view-head { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--dsh-fg-0); }
-.jobs-view-list { display: flex; flex-direction: column; gap: 8px; }
-
-/* 后台任务按钮与列表（对齐官方 background-job list） */
-.jobs-btn { display: inline-flex; align-items: center; gap: 6px; }
-.jobs-btn.has-running { color: var(--dsh-accent); border-color: var(--dsh-accent); }
-.jobs-count { display: inline-grid; place-items: center; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--dsh-accent); color: #fff; font-size: 11px; font-weight: 600; }
-.jobs-panel { display: flex; flex-direction: column; gap: 8px; }
-.jobs-head { display: flex; justify-content: space-between; align-items: center; font-size: 13px; color: var(--dsh-fg-0); }
-.jobs-hint { font-size: 11px; color: var(--dsh-fg-2); }
-.jobs-empty { text-align: center; color: var(--dsh-fg-2); padding: 16px 0; font-size: 12px; }
-.jobs-list { max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
-.job-item { border: 1px solid var(--dsh-border); border-radius: 8px; padding: 8px 10px; background: var(--dsh-bg-2); }
-.job-item.running { border-color: var(--dsh-accent); }
-.job-line { display: flex; align-items: center; gap: 8px; font-size: 12px; }
-.job-kind { color: var(--dsh-fg-2); font-weight: 600; flex-shrink: 0; }
-.job-cmd { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dsh-fg-0); font-size: 12px; }
-.job-status { flex-shrink: 0; font-size: 11px; padding: 1px 8px; border-radius: 10px; background: var(--dsh-bg-3); color: var(--dsh-fg-2); }
-.job-item.running .job-status { background: var(--dsh-accent-soft); color: var(--dsh-accent); }
-.job-item.done .job-status { background: rgba(46, 204, 113, .15); color: #2ecc71; }
-.job-item.failed .job-status { background: rgba(229, 72, 77, .15); color: #e5484d; }
-.job-item.killed .job-status { background: rgba(245, 166, 35, .15); color: #f5a623; }
-.job-duration { flex-shrink: 0; color: var(--dsh-fg-2); font-size: 11px; }
-.job-meta { margin-top: 4px; font-size: 11px; color: var(--dsh-fg-2); }
-.job-actions { margin-top: 6px; text-align: right; }
-:deep(.jobs-popover) { background: var(--dsh-bg-2); border-color: var(--dsh-border); }
-:deep(.jobs-popover .el-popper__arrow::before) { background: var(--dsh-bg-2); border-color: var(--dsh-border); }
 
 /* 子代理对话抽屉 */
 .subagent-drawer { display: flex; flex-direction: column; height: 100%; }
@@ -951,23 +757,4 @@ onBeforeUnmount(() => {
 .subagent-empty { text-align: center; color: var(--dsh-fg-2); padding: 30px 0; font-size: 13px; }
 .subagent-input { display: flex; gap: 8px; align-items: flex-end; border-top: 1px solid var(--dsh-border); padding-top: 10px; }
 
-
-/* ---- 工具面板（skills / mcp / expert，侧边栏「工具」菜单对应视图） ---- */
-.tools-view { flex: 1; display: flex; flex-direction: column; gap: 10px; padding: 16px 20px; overflow-y: auto; min-height: 0; }
-.tools-view-head { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--dsh-fg-0); }
-.skill-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
-.skill-card {
-  border: 1px solid var(--dsh-border); border-radius: 10px; padding: 12px 14px;
-  background: var(--dsh-bg-2); display: flex; flex-direction: column; gap: 6px;
-  transition: border-color .15s, box-shadow .15s;
-}
-.skill-card:hover { border-color: var(--dsh-accent); box-shadow: 0 2px 12px rgba(0,0,0,.08); }
-.skill-name { font-size: 14px; font-weight: 600; color: var(--dsh-fg-0); }
-.skill-desc { font-size: 12px; color: var(--dsh-fg-2); line-height: 1.5; }
-.skill-tools code { font-size: 11px; color: var(--dsh-accent); background: var(--dsh-bg-3); padding: 2px 6px; border-radius: 4px; }
-.tools-empty { color: var(--dsh-fg-2); font-size: 13px; padding: 24px; text-align: center; }
-.placeholder-view { align-items: center; justify-content: center; text-align: center; gap: 8px; }
-.placeholder-icon { font-size: 48px; }
-.placeholder-title { font-size: 18px; font-weight: 600; color: var(--dsh-fg-0); }
-.placeholder-desc { font-size: 13px; color: var(--dsh-fg-2); max-width: 420px; }
 </style>

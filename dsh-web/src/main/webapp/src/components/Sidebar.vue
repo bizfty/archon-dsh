@@ -30,7 +30,8 @@ const TOOLS = [
   { id: 'skills', icon: '⚙️', name: '技能' },
   { id: 'jobs', icon: '⏰', name: '定时任务' },
   { id: 'expert', icon: '🧩', name: '专家套件' },
-  { id: 'coder', icon: '💻', name: '代码编辑器' },
+  { id: 'coder', icon: '💻', name: '代码开发' },
+  { id: 'self', icon: '🧬', name: '自我完善' },
 ];
 </script>
 
