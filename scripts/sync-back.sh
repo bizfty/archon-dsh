@@ -35,7 +35,7 @@ PROD_ONLY="$(diff -rq --exclude=.git --exclude=target --exclude=data \
   --exclude=develop --exclude=backup --exclude=.idea \
   --exclude=node_modules --exclude=.dsh-identity \
   --exclude=external --exclude='*.log' \
-  --exclude='dsh-web/src/main/resources/static' \
+  --exclude=static \
   "$ROOT/develop/" "$ROOT/" \
   | grep '^Only in '"$ROOT" \
   | grep -v "$ROOT/develop" || true)"
@@ -67,7 +67,7 @@ if diff -rq --exclude=.git --exclude=target --exclude=data \
   --exclude=develop --exclude=backup --exclude=.idea \
   --exclude=node_modules --exclude=.dsh-identity \
   --exclude=external --exclude='*.log' \
-  --exclude='dsh-web/src/main/resources/static' \
+  --exclude=static \
   "$ROOT/develop/" "$ROOT/" > /dev/null; then
   echo "✅ develop 与 archon-dsh 完全一致（排除清单内）"
 else
@@ -76,7 +76,7 @@ else
     --exclude=develop --exclude=backup --exclude=.idea \
     --exclude=node_modules --exclude=.dsh-identity \
     --exclude=external --exclude='*.log' \
-    --exclude='dsh-web/src/main/resources/static' \
+    --exclude=static \
     "$ROOT/develop/" "$ROOT/" | head -30
   exit 1
 fi

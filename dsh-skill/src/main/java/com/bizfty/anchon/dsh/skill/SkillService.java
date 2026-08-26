@@ -217,6 +217,10 @@ public class SkillService {
         try {
             URI uri = resource.getURI();
             String path = uri.getPath();
+            if (path == null) {
+                // fat jar 的 nested: URI getPath() 可能为 null，回退到描述
+                return resource.getDescription();
+            }
             int idx = path.lastIndexOf("/SKILL.md");
             if (idx >= 0) {
                 return path.substring(0, idx);

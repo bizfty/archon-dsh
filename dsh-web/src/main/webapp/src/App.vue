@@ -7,6 +7,7 @@ import Composer from './components/Composer.vue';
 import GoalView from './components/GoalView.vue';
 import TrajectoryView from './components/TrajectoryView.vue';
 import PlanView from './components/PlanView.vue';
+import CodeView from './components/CodeView.vue';
 import {
   appState, pushNotice, initTheme, setTheme, setModel, setPlanMode,
   THEMES, type ThemeKey, toggleSidebar,
@@ -249,6 +250,19 @@ async function refreshJobs(): Promise<void> {
 }
 
 /** 切到任务 tab：立即刷新 + 轮询（实时状态）；离开停止。 */
+const SCENARIOS = [
+  { id: 'coder', icon: '💻', name: 'Coder', desc: '在线代码开发工具' },
+  // 预留：后续可扩展 doc / data / research 等场景
+];
+
+function switchCoder(): void {
+  appState.view = 'coder';
+}
+
+function openScenario(id: string): void {
+  if (id === 'coder') switchCoder();
+}
+
 function switchJobs(): void {
   appState.view = 'jobs';
   void refreshJobs();
@@ -657,6 +671,7 @@ onBeforeUnmount(() => {
         <button class="tab" :class="{ active: appState.view === 'goal' }" @click="switchGoal">🎯 目标</button>
         <button class="tab" :class="{ active: appState.view === 'trajectory' }" @click="switchTrajectory">🛤 轨迹</button>
         <button class="tab" :class="{ active: appState.view === 'jobs' }" @click="switchJobs">⚙️ 任务</button>
+        <button class="tab" :class="{ active: appState.view === 'coder' }" @click="switchCoder">💻 代码</button>
       </nav>
       <!-- 消息流主列（常驻 dock 之上；对话/计划/目标/轨迹均为 body 视图切换） -->
       <div class="body">
@@ -723,6 +738,7 @@ onBeforeUnmount(() => {
           </div>
         </div>
       </div>
+      <CodeView v-show="appState.view === 'coder'" @close="appState.view = 'chat'" />
       <!-- 对话输入 dock（常驻，不属于任何 tab；对齐官方 conversation.input.dock） -->
       <div class="composer-dock">
         <Composer
@@ -731,6 +747,21 @@ onBeforeUnmount(() => {
           @clear="appState.messages = []"
           @command="onCommand"
         />
+        <!-- 场景栏：对话框下方快捷入口（对应 javaai 的场景/预设） -->
+        <div class="scenario-bar">
+          <span class="scenario-label">🧩 场景</span>
+          <div
+            v-for="sc in SCENARIOS"
+            :key="sc.id"
+            class="scenario-chip"
+            :class="{ active: appState.view === sc.id }"
+            @click="openScenario(sc.id)"
+          >
+            <span class="scenario-icon">{{ sc.icon }}</span>
+            <span class="scenario-name">{{ sc.name }}</span>
+            <span class="scenario-desc">{{ sc.desc }}</span>
+          </div>
+        </div>
       </div>
     </main>
 
@@ -877,4 +908,50 @@ onBeforeUnmount(() => {
 .subagent-msg.user .subagent-bubble { background: var(--dsh-accent); border-color: var(--dsh-accent); color: #fff; }
 .subagent-empty { text-align: center; color: var(--dsh-fg-2); padding: 30px 0; font-size: 13px; }
 .subagent-input { display: flex; gap: 8px; align-items: flex-end; border-top: 1px solid var(--dsh-border); padding-top: 10px; }
+
+/* 场景栏（composer 对话框下方） */
+.scenario-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--dsh-bg-1);
+  border-top: 1px solid var(--dsh-border);
+  overflow-x: auto;
+  flex: none;
+}
+
+.scenario-label {
+  font-size: 12px;
+  color: var(--dsh-fg-3);
+  white-space: nowrap;
+}
+
+.scenario-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border: 1px solid var(--dsh-border);
+  border-radius: 16px;
+  background: var(--dsh-bg-2);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all .15s;
+}
+
+.scenario-chip:hover {
+  border-color: var(--dsh-accent);
+  background: var(--dsh-accent-soft);
+}
+
+.scenario-chip.active {
+  border-color: var(--dsh-accent);
+  background: var(--dsh-accent-soft);
+  color: var(--dsh-accent);
+}
+
+.scenario-icon { font-size: 15px; }
+.scenario-name { font-size: 13px; font-weight: 600; }
+.scenario-desc { font-size: 11px; color: var(--dsh-fg-3); }
 </style>

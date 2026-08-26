@@ -773,3 +773,87 @@ export async function readFile(path: string): Promise<{ path: string; content: s
   });
   return parse<{ path: string; content: string; lines: number; error?: string }>(resp);
 }
+// ---- coder 场景：在线代码开发（/api/code/*，见 CodeController）----
+
+export interface CodeProject {
+  name: string;
+  fileCount: number;
+}
+
+export interface CodeTreeNode {
+  name: string;
+  path: string;
+  type: 'dir' | 'file';
+  size?: number;
+  children?: CodeTreeNode[];
+}
+
+export interface CodeFileContent {
+  path: string;
+  content: string;
+  lines: number;
+  size?: number;
+  error?: string;
+}
+
+/** 列出代码项目。 */
+export async function listCodeProjects(): Promise<CodeProject[]> {
+  const resp = await fetch(`${BASE}/api/code/projects`, { headers: headers(false) });
+  return parse<CodeProject[]>(resp);
+}
+
+/** 创建代码项目（根目录下建子目录）。 */
+export async function createCodeProject(name: string): Promise<CodeProject> {
+  const resp = await fetch(`${BASE}/api/code/projects`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify({ name }),
+  });
+  return parse<CodeProject>(resp);
+}
+
+/** 项目文件树（递归，排除构建产物）。 */
+export async function getCodeTree(project: string): Promise<CodeTreeNode> {
+  const resp = await fetch(`${BASE}/api/code/projects/${encodeURIComponent(project)}/tree`, {
+    headers: headers(false),
+  });
+  return parse<CodeTreeNode>(resp);
+}
+
+/** 读文件内容。 */
+export async function readCodeFile(project: string, path: string): Promise<CodeFileContent> {
+  const resp = await fetch(
+    `${BASE}/api/code/files?project=${encodeURIComponent(project)}&path=${encodeURIComponent(path)}`,
+    { headers: headers(false) },
+  );
+  return parse<CodeFileContent>(resp);
+}
+
+/** 保存文件（覆盖写，自动建父目录）。 */
+export async function saveCodeFile(project: string, path: string, content: string): Promise<{ path: string; size: number }> {
+  const resp = await fetch(`${BASE}/api/code/files`, {
+    method: 'PUT',
+    headers: headers(),
+    body: JSON.stringify({ project, path, content }),
+  });
+  return parse<{ path: string; size: number }>(resp);
+}
+
+/** 新建文件（不覆盖已存在）。 */
+export async function createCodeFile(project: string, path: string): Promise<{ path: string }> {
+  const resp = await fetch(`${BASE}/api/code/files`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify({ project, path }),
+  });
+  return parse<{ path: string }>(resp);
+}
+
+/** 删除文件（或空目录）。 */
+export async function deleteCodeFile(project: string, path: string): Promise<{ deleted: string }> {
+  const resp = await fetch(
+    `${BASE}/api/code/files?project=${encodeURIComponent(project)}&path=${encodeURIComponent(path)}`,
+    { method: 'DELETE', headers: headers(false) },
+  );
+  return parse<{ deleted: string }>(resp);
+}
