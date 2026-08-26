@@ -23,11 +23,14 @@ function fmtTime(iso: string): string {
   });
 }
 
-/** 场景/工具菜单（对齐 javaai 侧边栏「工具」分组）。 */
+/** 场景/工具菜单（对齐 javaai 侧边栏「工具」分组，与会话列表 list 同层）。 */
 const TOOLS = [
   { id: 'chat', icon: '💬', name: '对话' },
+  { id: 'mcp', icon: '🔗', name: 'MCP' },
+  { id: 'skills', icon: '⚙️', name: '技能' },
+  { id: 'jobs', icon: '⏰', name: '定时任务' },
+  { id: 'expert', icon: '🧩', name: '专家套件' },
   { id: 'coder', icon: '💻', name: '代码编辑器' },
-  // 预留：doc / data / research 等场景
 ];
 </script>
 

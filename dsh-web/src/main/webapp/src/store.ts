@@ -134,7 +134,7 @@ export const appState = reactive({
   trajectory: null as import('./api').TrajectoryView | null,
   trajectoryLoading: false,
 
-  view: 'chat' as 'chat' | 'plan' | 'goal' | 'trajectory' | 'jobs' | 'coder',
+  view: 'chat' as 'chat' | 'plan' | 'goal' | 'trajectory' | 'jobs' | 'coder' | 'mcp' | 'skills' | 'expert',
   notice: null as string | null,
 
   /** 常驻 WebSocket 下行连接状态（对齐官方 connected/reconnecting）。 */

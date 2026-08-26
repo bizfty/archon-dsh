@@ -18,7 +18,8 @@ import {
   getGoal, createGoal, updateGoal, pendingQuestions,
   getTrajectory, listModels, listJobs, killJob,
   getPlanMode, enterPlanMode, exitPlanMode, submitPlanMode,
-  type SseEvent,
+  listSkills,
+  type SseEvent, type SkillInfo,
 } from './api';
 import { WsClient, connectionLabel, type SessionFrame } from './ws';
 
@@ -249,18 +250,43 @@ async function refreshJobs(): Promise<void> {
   }
 }
 
-/** 侧边栏「工具」菜单 → 视图切换（javaai 场景入口，置于会话列表下方）。 */
+/** 工具面板技能列表（惰性加载一次）。 */
+const toolSkills = ref<SkillInfo[]>([]);
+const toolSkillsLoading = ref(false);
+const toolSkillsError = ref<string | null>(null);
+
+async function loadToolSkills(): Promise<void> {
+  if (toolSkills.value.length > 0 || toolSkillsLoading.value) return;
+  toolSkillsLoading.value = true;
+  toolSkillsError.value = null;
+  try {
+    toolSkills.value = await listSkills();
+  } catch (e) {
+    toolSkillsError.value = (e as Error).message;
+  } finally {
+    toolSkillsLoading.value = false;
+  }
+}
+
+/** 侧边栏「工具」菜单 → 视图切换（javaai 场景入口，与会话列表同层）。 */
 function onSelectTool(id: string): void {
   if (id === 'coder') {
     appState.view = 'coder';
     return;
   }
-  // chat 等常规视图直接切换
-  appState.view = id as 'chat' | 'plan' | 'goal' | 'trajectory' | 'jobs' | 'coder';
   if (id === 'jobs') {
+    appState.view = 'jobs';
     void refreshJobs();
     startJobsPolling();
+    return;
   }
+  if (id === 'skills') {
+    appState.view = 'skills';
+    void loadToolSkills();
+    return;
+  }
+  // chat / mcp / expert 等常规视图直接切换
+  appState.view = id as 'chat' | 'plan' | 'goal' | 'trajectory' | 'jobs' | 'coder' | 'mcp' | 'skills' | 'expert';
 }
 
 function switchJobs(): void {
@@ -737,6 +763,37 @@ onBeforeUnmount(() => {
             </div>
           </div>
         </div>
+        <!-- 技能面板（侧边栏「工具」→ ⚙️ 技能） -->
+        <div v-show="appState.view === 'skills'" class="tools-view skills-view">
+          <div class="tools-view-head">
+            <b>⚙️ 技能（Skill）</b>
+            <span class="jobs-hint">可在对话中通过 /skill 或 + 按钮调用</span>
+            <el-button size="small" @click="loadToolSkills">刷新</el-button>
+          </div>
+          <el-alert v-if="toolSkillsError" type="error" :title="toolSkillsError" :closable="false" />
+          <div v-loading="toolSkillsLoading" class="skill-grid">
+            <div v-for="sk in toolSkills" :key="sk.name" class="skill-card">
+              <div class="skill-name">⚙️ {{ sk.name }}</div>
+              <div class="skill-desc">{{ sk.description }}</div>
+              <div class="skill-tools" v-if="sk.tools"><code>{{ sk.tools }}</code></div>
+            </div>
+            <div v-if="toolSkills.length === 0 && !toolSkillsLoading && !toolSkillsError" class="tools-empty">
+              暂无可用技能
+            </div>
+          </div>
+        </div>
+        <!-- MCP 面板（侧边栏「工具」→ 🔗 MCP，待接入） -->
+        <div v-show="appState.view === 'mcp'" class="tools-view placeholder-view">
+          <div class="placeholder-icon">🔗</div>
+          <div class="placeholder-title">MCP 工具</div>
+          <div class="placeholder-desc">模型上下文协议（Model Context Protocol）工具市场，规划中，敬请期待。</div>
+        </div>
+        <!-- 专家套件面板（侧边栏「工具」→ 🧩 专家套件，待接入） -->
+        <div v-show="appState.view === 'expert'" class="tools-view placeholder-view">
+          <div class="placeholder-icon">🧩</div>
+          <div class="placeholder-title">专家套件</div>
+          <div class="placeholder-desc">领域专家技能组合包，规划中，敬请期待。</div>
+        </div>
       </div>
       <CodeView v-show="appState.view === 'coder'" @close="appState.view = 'chat'" />
       <!-- 对话输入 dock（常驻，不属于任何 tab；对齐官方 conversation.input.dock） -->
@@ -894,4 +951,23 @@ onBeforeUnmount(() => {
 .subagent-empty { text-align: center; color: var(--dsh-fg-2); padding: 30px 0; font-size: 13px; }
 .subagent-input { display: flex; gap: 8px; align-items: flex-end; border-top: 1px solid var(--dsh-border); padding-top: 10px; }
 
+
+/* ---- 工具面板（skills / mcp / expert，侧边栏「工具」菜单对应视图） ---- */
+.tools-view { flex: 1; display: flex; flex-direction: column; gap: 10px; padding: 16px 20px; overflow-y: auto; min-height: 0; }
+.tools-view-head { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--dsh-fg-0); }
+.skill-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+.skill-card {
+  border: 1px solid var(--dsh-border); border-radius: 10px; padding: 12px 14px;
+  background: var(--dsh-bg-2); display: flex; flex-direction: column; gap: 6px;
+  transition: border-color .15s, box-shadow .15s;
+}
+.skill-card:hover { border-color: var(--dsh-accent); box-shadow: 0 2px 12px rgba(0,0,0,.08); }
+.skill-name { font-size: 14px; font-weight: 600; color: var(--dsh-fg-0); }
+.skill-desc { font-size: 12px; color: var(--dsh-fg-2); line-height: 1.5; }
+.skill-tools code { font-size: 11px; color: var(--dsh-accent); background: var(--dsh-bg-3); padding: 2px 6px; border-radius: 4px; }
+.tools-empty { color: var(--dsh-fg-2); font-size: 13px; padding: 24px; text-align: center; }
+.placeholder-view { align-items: center; justify-content: center; text-align: center; gap: 8px; }
+.placeholder-icon { font-size: 48px; }
+.placeholder-title { font-size: 18px; font-weight: 600; color: var(--dsh-fg-0); }
+.placeholder-desc { font-size: 13px; color: var(--dsh-fg-2); max-width: 420px; }
 </style>
