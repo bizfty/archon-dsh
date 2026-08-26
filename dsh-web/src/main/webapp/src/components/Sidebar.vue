@@ -5,6 +5,7 @@ import { appState, toggleSidebar } from '../store';
 const emit = defineEmits<{
   (e: 'new-session'): void;
   (e: 'select-session', id: string): void;
+  (e: 'select-tool', id: string): void;
 }>();
 
 const kw = ref('');
@@ -21,6 +22,13 @@ function fmtTime(iso: string): string {
     month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
   });
 }
+
+/** 场景/工具菜单（对齐 javaai 侧边栏「工具」分组）。 */
+const TOOLS = [
+  { id: 'chat', icon: '💬', name: '对话' },
+  { id: 'coder', icon: '💻', name: '代码编辑器' },
+  // 预留：doc / data / research 等场景
+];
 </script>
 
 <template>
@@ -69,6 +77,24 @@ function fmtTime(iso: string): string {
       <el-alert v-if="appState.sessionsError" type="error" :title="appState.sessionsError" :closable="false" />
     </div>
 
+    <!-- 工具菜单（会话列表下方，对齐 javaai 侧边栏「工具」分组） -->
+    <div class="section tools-section">
+      <span v-if="!appState.sidebarCollapsed">工具</span>
+    </div>
+    <nav class="tools">
+      <div
+        v-for="t in TOOLS"
+        :key="t.id"
+        class="tool-item"
+        :class="{ active: appState.view === t.id }"
+        @click="emit('select-tool', t.id)"
+        :title="appState.sidebarCollapsed ? t.name : ''"
+      >
+        <span class="tool-icon">{{ t.icon }}</span>
+        <span v-if="!appState.sidebarCollapsed" class="tool-name">{{ t.name }}</span>
+      </div>
+    </nav>
+
     <div class="bottom">
       <div class="user" :title="appState.sidebarCollapsed ? 'Archon DSH · 在线' : ''">
         <span class="avatar">🧭</span>
@@ -105,7 +131,7 @@ function fmtTime(iso: string): string {
 .section { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--dsh-fg-2); text-transform: uppercase; letter-spacing: .05em; margin: 8px 2px; }
 .sidebar.collapsed .section span { display: none; }
 
-.list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+.list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; min-height: 60px; }
 .item { padding: 8px 10px; border: 1px solid transparent; border-radius: 8px; cursor: pointer; color: var(--dsh-fg-0); transition: background-color .15s; }
 .item:hover { background: var(--dsh-bg-3); }
 .item.active { background: var(--dsh-bg-3); border-color: var(--dsh-accent); }
@@ -120,6 +146,21 @@ function fmtTime(iso: string): string {
   display: grid; place-items: center; font-size: 14px; font-weight: 600; margin: 0 auto;
 }
 .sidebar.collapsed .item.active .t-collapsed { background: var(--dsh-accent); color: var(--dsh-accent-contrast); }
+
+/* 工具菜单（会话列表下方） */
+.tools-section { margin-top: 4px; }
+.tools { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
+.tool-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 10px; border-radius: 8px; cursor: pointer;
+  color: var(--dsh-fg-1); font-size: 13px; transition: background-color .15s;
+  user-select: none; white-space: nowrap; overflow: hidden;
+}
+.tool-item:hover { background: var(--dsh-bg-3); color: var(--dsh-fg-0); }
+.tool-item.active { background: var(--dsh-bg-3); color: var(--dsh-accent); font-weight: 600; }
+.tool-icon { font-size: 15px; width: 20px; text-align: center; flex-shrink: 0; }
+.tool-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar.collapsed .tool-item { justify-content: center; padding: 7px 4px; }
 
 .bottom { padding-top: 12px; border-top: 1px solid var(--dsh-border); }
 .sidebar.collapsed .bottom { padding-top: 8px; }
