@@ -100,7 +100,7 @@ application-local.yml
 # ===========================
 **/node_modules/
 dsh-web/src/main/resources/static/
-
+dsh-web/src/main/webapp/node_modules/
 # ===========================
 # Misc
 # ===========================

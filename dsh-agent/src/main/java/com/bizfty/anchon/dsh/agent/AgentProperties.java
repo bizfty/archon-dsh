@@ -15,8 +15,11 @@ import java.util.Map;
  * dsh:
  *   agents:
  *     main:     { model: deepseek-chat, provider: deepseek }
- *     planner:  { model: deepseek-chat, systemPrompt: "你只做规划…" }
+ *     planner:  { model: deepseek-chat, provider: deepseek }
  * </pre>
+ * <p>
+ * persona（system prompt）不走配置：按约定从 classpath 直接加载
+ * {@code prompt/{agentId}.txt} 模板（存在即加载，不存在则回退默认 persona）。
  * <p>
  * 注意：{@code dsh.*} 前缀会被 DSH harness 的系统属性（DSH_SHELL/DSH_HOME/DSH_WEB_URL…）
  * 污染，导致类级 {@code @ConfigurationProperties} 绑定失效；因此这里用
@@ -47,7 +50,6 @@ public class AgentProperties {
     public static class AgentSpec {
         private String provider = "deepseek";
         private String model;
-        private String systemPrompt;
         private String cwd;
         private String credentialRef;
         private java.util.List<String> enabledTools = java.util.List.of();
@@ -67,14 +69,6 @@ public class AgentProperties {
 
         public void setModel(String model) {
             this.model = model;
-        }
-
-        public String getSystemPrompt() {
-            return systemPrompt;
-        }
-
-        public void setSystemPrompt(String systemPrompt) {
-            this.systemPrompt = systemPrompt;
         }
 
         public String getCwd() {

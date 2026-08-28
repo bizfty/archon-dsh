@@ -63,11 +63,10 @@ dsh:
     main:
       provider: deepseek
       model: ${DSH_AGENT_MODEL:}
-      systemPrompt: ""
     planner:
       provider: deepseek
       model: ${DSH_AGENT_MODEL:}
-      systemPrompt: "你是规划 Agent（Planner）。你只做规划、拆解任务与制定步骤，不实现代码、不执行操作。输出清晰可执行的分步计划。"
+      # persona 按约定从 classpath 直接加载 prompt/{agentId}.txt（如 prompt/planner.txt），无需配置
 
 copilot:
   skills:

@@ -177,6 +177,7 @@ async function loadTree() {
 }
 
 function onProjectChange() {
+  disposeEditor();
   currentPath.value = '';
   currentContent.value = '';
   dirty.value = false;
@@ -525,7 +526,13 @@ function applyMonacoTheme() {
 
 /** 创建/复用 Monaco 实例（host 必须可见）。 */
 function ensureEditor() {
-  if (editor || !monaco || !monacoHost.value) return;
+  // host 可能被 v-if 重建（currentPath 清空 → editor-empty 分支 → 再打开文件时是新 div），
+  // 旧 editor 实例仍绑定在已移除的旧元素上：若当前 host 内没有 Monaco 渲染树则先销毁旧实例。
+  if (!monaco || !monacoHost.value) return;
+  if (editor && !monacoHost.value.querySelector('.monaco-editor')) {
+    disposeEditor();
+  }
+  if (editor) return;
   editor = monaco.editor.create(monacoHost.value, {
     value: currentContent.value,
     language: monacoLangFor(currentPath.value),
@@ -653,6 +660,7 @@ async function doDeleteCurrent() {
   if (!window.confirm(`删除 ${currentPath.value}？此操作不可恢复。`)) return;
   try {
     await deleteCodeFile(currentProject.value, currentPath.value, props.scene);
+    disposeEditor();
     currentPath.value = '';
     currentContent.value = '';
     dirty.value = false;
@@ -691,6 +699,7 @@ watch(
   () => props.scene,
   async () => {
     // 场景切换 = 切换工作区：清空当前编辑状态与项目选择，按新场景重新加载
+    disposeEditor();
     currentProject.value = '';
     currentPath.value = '';
     currentContent.value = '';
