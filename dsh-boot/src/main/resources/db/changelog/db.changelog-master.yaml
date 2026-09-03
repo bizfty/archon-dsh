@@ -17,3 +17,7 @@ databaseChangeLog:
       file: db/changelog/changelogs/0005-plan-step-review.yaml
   - include:
       file: db/changelog/changelogs/0006-p2-hardening.yaml
+  - include:
+      file: db/changelog/changelogs/0007-session-fact.yaml
+  - include:
+      file: db/changelog/changelogs/0008-surface-op.yaml

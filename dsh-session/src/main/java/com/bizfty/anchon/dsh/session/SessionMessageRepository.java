@@ -17,4 +17,11 @@ public interface SessionMessageRepository extends JpaRepository<SessionMessageEn
     @Modifying
     @Query("update SessionMessageEntity e set e.pruned = true where e.id = :id and e.sessionId = :sessionId")
     int markPruned(@Param("id") String id, @Param("sessionId") String sessionId);
+
+    /** 全部有消息投影的会话 id（供投影校验器启动抽查遍历）。 */
+    @Query("select distinct e.sessionId from SessionMessageEntity e")
+    List<String> findAllSessionIds();
+
+    /** 幂等重建：删除某会话全部投影行（投影为可丢弃缓存，真相在 fact）。 */
+    long deleteBySessionId(String sessionId);
 }

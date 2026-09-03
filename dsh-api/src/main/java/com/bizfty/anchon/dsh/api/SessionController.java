@@ -4,6 +4,7 @@ import com.bizfty.anchon.dsh.agent.AgentCancelledException;
 import com.bizfty.anchon.dsh.agent.AgentLoopService;
 import com.bizfty.anchon.dsh.agent.AgentRunRequest;
 import com.bizfty.anchon.dsh.agent.SessionCancellation;
+import com.bizfty.anchon.dsh.agent.command.CommandRegistry;
 import com.bizfty.anchon.dsh.agent.AgentRunResult;
 import com.bizfty.anchon.dsh.api.dto.ChatRequest;
 import com.bizfty.anchon.dsh.api.dto.MessageDto;
@@ -63,6 +64,14 @@ public class SessionController {
     private final SubagentRegistry subagentRegistry;
     private final SubagentRunner subagentRunner;
     private final SessionCancellation sessionCancellation;
+
+    /** 聊天命令注册表（M6，design §3.2）：可空 —— 无装配（旧测试直接 new）时回退内置 /compact 特判。 */
+    private CommandRegistry commandRegistry;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setCommandRegistry(CommandRegistry commandRegistry) {
+        this.commandRegistry = commandRegistry;
+    }
 
     public SessionController(SessionService sessionService, AgentLoopService agentLoopService,
                              SessionEventBus eventBus, FeedbackService feedbackService,
@@ -183,13 +192,15 @@ public class SessionController {
     /**
      * 取消某会话的当前执行 — 前端「停止生成」按钮的端点。
      * <p>
-     * 协作式取消：置位会话级取消标志，AgentLoop 在 step 循环检查并在
-     * 模型/工具间隙停止（不中断正在执行的工具）。随后该 turn 以
-     * TURN_ERROR(error_type=cancelled) / SSE error(error_type=cancelled) 收尾。
+     * 协作式取消（M4-3）：改调 {@link AgentLoopService#abortSession} —— 委托路径下置位
+     * ResidentAgent 对象态取消标志（phase→aborted，供 resume/重启恢复），直接执行路径
+     * 回退 SessionCancellation；AgentLoop 在 step 循环 / 流式订阅检查并在模型/工具间隙停止
+     * （不中断正在执行的工具）。随后该 turn 以 TURN_ERROR(error_type=cancelled) /
+     * SSE error(error_type=cancelled) 收尾。
      */
     @PostMapping("/{sessionId}/chat/cancel")
     public ResponseEntity<Map<String, Object>> cancelChat(@PathVariable String sessionId) {
-        sessionCancellation.cancel(sessionId);
+        agentLoopService.abortSession(SessionId.of(sessionId));
         return ResponseEntity.ok(Map.of("sessionId", sessionId, "cancelled", true));
     }
 
@@ -203,6 +214,11 @@ public class SessionController {
         if (message == null) {
             return null;
         }
+        if (commandRegistry != null) {
+            // M6 命令注册表分发：/<name> 命中执行（含 /help）；未知命令/普通消息返回 null（走 agent 流程）
+            return commandRegistry.execute(session.id(), message);
+        }
+        // 回退（无注册表装配的旧测试/裁剪装配）：保留原 /compact 特判，行为与历史一致
         String trimmed = message.trim();
         if (trimmed.equals("/compact")) {
             return agentLoopService.manualCompact(session.id());

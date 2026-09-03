@@ -52,6 +52,7 @@ dsh:
   agent:
     max-steps: 200
     temperature: 0.7
+    resident: true # 常驻 agent（M4 D8）：true=run/stream 委托 per-session 队列；false=直接执行回退
   agents:
     main:
       model: ${DSH_AGENT_MODEL:deepseek-chat}

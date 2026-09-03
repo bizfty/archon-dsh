@@ -47,6 +47,10 @@ public enum SessionEventType {
     FEEDBACK,
     /** 会话标题刷新 */
     TITLE_UPDATED,
+    /** 常驻 agent Phase 迁移（M4-5：idle 不落；queued/running/aborted/error 落，供重启恢复） */
+    AGENT_PHASE,
     /** 工具结果 durable 修剪（P2-②：原文保留、投影截断的观测事件） */
-    TOOL_RESULT_PRUNE
+    TOOL_RESULT_PRUNE,
+    /** 表面指令写入（M8 surfaceOp：replaceHead/replaceRange/restoreRange 后发布，可见面演进审计） */
+    SESSION_SURFACE_CHANGED
 }

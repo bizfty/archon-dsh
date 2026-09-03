@@ -32,7 +32,7 @@ class SessionServiceTest {
     @EnableAutoConfiguration
     @EnableJpaRepositories(basePackageClasses = SessionRepository.class)
     @EntityScan(basePackageClasses = SessionEntity.class)
-    @Import(SessionService.class)
+    @Import({SessionService.class, SessionFactStore.class})
     static class TestConfig {
     }
 

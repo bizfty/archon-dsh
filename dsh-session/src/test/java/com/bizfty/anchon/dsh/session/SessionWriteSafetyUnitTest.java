@@ -22,13 +22,15 @@ class SessionWriteSafetyUnitTest {
 
     private SessionRepository sessionRepository;
     private SessionMessageRepository messageRepository;
+    private SessionFactStore factStore;
     private SessionService service;
 
     @BeforeEach
     void setUp() {
         sessionRepository = mock(SessionRepository.class);
         messageRepository = mock(SessionMessageRepository.class);
-        service = new SessionService(sessionRepository, messageRepository);
+        factStore = mock(SessionFactStore.class);
+        service = new SessionService(sessionRepository, messageRepository, factStore);
     }
 
     private SessionEntity entity(String id) {
@@ -62,10 +64,10 @@ class SessionWriteSafetyUnitTest {
     }
 
     @Test
-    void appendWrapsOptimisticConflictOnSessionRowUpdate() {
-        when(messageRepository.countBySessionId("sess_x")).thenReturn(0L);
-        when(sessionRepository.findById("sess_x")).thenReturn(Optional.of(entity("sess_x")));
-        stubConflict();
+    void appendPropagatesStoreConflictAsDomainException() {
+        // M2：append 委托 SessionFactStore（同事务 fact+投影+会话行乐观锁）；冲突类型契约不变。
+        when(factStore.append(any(), any(), any(), any(), any(), any(), any()))
+                .thenThrow(new SessionService.SessionConcurrentModificationException("sess_x", null));
         assertThrows(SessionService.SessionConcurrentModificationException.class,
                 () -> service.append(SessionId.of("sess_x"),
                         com.bizfty.anchon.dsh.core.model.MessageRole.USER, "hi", null, null, null));

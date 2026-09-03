@@ -34,7 +34,7 @@ class WorkspaceServiceTest {
     @EnableAutoConfiguration
     @EnableJpaRepositories(basePackageClasses = SessionRepository.class)
     @EntityScan(basePackageClasses = SessionEntity.class)
-    @Import({WorkspaceService.class, SessionService.class})
+    @Import({WorkspaceService.class, SessionService.class, SessionFactStore.class})
     static class TestConfig {
     }
 

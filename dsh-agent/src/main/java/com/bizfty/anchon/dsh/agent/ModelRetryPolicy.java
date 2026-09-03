@@ -45,6 +45,8 @@ public class ModelRetryPolicy {
                 throw e;
             } catch (NonRetryableException e) {
                 throw e;
+            } catch (AgentCancelledException e) {
+                throw e; // 用户取消不可重试（重试会重复计费且违背停止意图）——M4-3
             } catch (Exception e) {
                 last = e;
                 if (attempt < maxAttempts) {

@@ -4,6 +4,7 @@ import com.bizfty.anchon.dsh.core.model.MessageRole;
 import com.bizfty.anchon.dsh.core.model.Session;
 import com.bizfty.anchon.dsh.core.model.SessionId;
 import com.bizfty.anchon.dsh.core.model.SessionMessage;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,10 +22,20 @@ public class SessionService {
 
     private final SessionRepository sessionRepository;
     private final SessionMessageRepository messageRepository;
+    private final SessionFactStore factStore;
 
-    public SessionService(SessionRepository sessionRepository, SessionMessageRepository messageRepository) {
+    /**
+     * 读模型开关（M2-5，design §4.5）：{@code dsh.session.read-model=table|fact-replay}。
+     * 可选注入 —— 测试/未装配上下文缺省时按 {@code table}（读投影缓存，行为与改造前一致）。
+     */
+    @Autowired(required = false)
+    private SessionReadModel readModel;
+
+    public SessionService(SessionRepository sessionRepository, SessionMessageRepository messageRepository,
+                          SessionFactStore factStore) {
         this.sessionRepository = sessionRepository;
         this.messageRepository = messageRepository;
+        this.factStore = factStore;
     }
 
     @Transactional
@@ -118,8 +129,15 @@ public class SessionService {
         }
     }
 
+    /**
+     * 会话消息读（对外接口不变）：默认 {@code table} 读投影缓存；{@code read-model=fact-replay}
+     * 验证模式改从 fact 真相直接读（只读重放，语义与 table 一致，见 §6.4）。
+     */
     @Transactional(readOnly = true)
     public List<SessionMessage> listMessages(SessionId sessionId) {
+        if (readModel != null && readModel.isFactReplay()) {
+            return factStore.listFromFact(sessionId);
+        }
         return messageRepository.findBySessionIdOrderBySeqAsc(sessionId.value())
                 .stream().map(SessionMessageEntity::toDomain).toList();
     }
@@ -130,23 +148,25 @@ public class SessionService {
      *
      * @return 受影响行数（0 = 消息不存在或不属于该会话）
      */
+    /** durable 修剪（M2 起）：委托 {@link SessionFactStore} 同事务置 fact+投影 pruned。 */
     @Transactional
     public int markToolResultPruned(SessionId sessionId, String messageId) {
-        return messageRepository.markPruned(messageId, sessionId.value());
+        return factStore.markPruned(sessionId, messageId);
     }
 
+    /** 追加消息（M2 起事实为真）：委托 {@link SessionFactStore} 单事务写 fact+投影+会话行。 */
     @Transactional
     public SessionMessage append(SessionId sessionId, MessageRole role, String content,
                                  String toolCallId, String toolName, String toolCallsJson) {
-        long seq = messageRepository.countBySessionId(sessionId.value()) + 1;
-        SessionMessage message = new SessionMessage(
-                "msg_" + UUID.randomUUID(), sessionId, role, content,
-                toolCallId, toolName, toolCallsJson, seq, Instant.now());
-        messageRepository.save(SessionMessageEntity.from(message));
-        SessionEntity entity = sessionRepository.findById(sessionId.value()).orElseThrow();
-        entity.setUpdatedAt(Instant.now());
-        saveSessionRow(entity);
-        return message;
+        return append(sessionId, role, content, toolCallId, toolName, toolCallsJson, null);
+    }
+
+    /** 追加消息并携带可选元数据（如 compacted=true 摘要来源标记），M2 事实路径。 */
+    @Transactional
+    public SessionMessage append(SessionId sessionId, MessageRole role, String content,
+                                 String toolCallId, String toolName, String toolCallsJson,
+                                 String metaJson) {
+        return factStore.append(sessionId, role, content, toolCallId, toolName, toolCallsJson, metaJson);
     }
 
     /** 会话不存在。 */

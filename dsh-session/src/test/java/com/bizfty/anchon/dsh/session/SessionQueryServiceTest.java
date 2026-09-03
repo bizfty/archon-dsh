@@ -26,7 +26,7 @@ class SessionQueryServiceTest {
     @EnableAutoConfiguration
     @EnableJpaRepositories(basePackageClasses = SessionRepository.class)
     @EntityScan(basePackageClasses = SessionEntity.class)
-    @Import({SessionService.class, SessionQueryService.class})
+    @Import({SessionService.class, SessionQueryService.class, SessionFactStore.class})
     static class TestConfig {
     }
 

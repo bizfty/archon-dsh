@@ -37,6 +37,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
@@ -103,6 +106,26 @@ public class AgentLoopService {
         this.sessionCancellation = sessionCancellation;
     }
 
+    /**
+     * 常驻 agent 注册表（M4-2，design §4.5）：可空。注入后 run/stream/manualCompact
+     * 委托到该会话的 {@link ResidentAgent}（虚拟线程执行者 + FIFO 队列，同步 join 语义不变）；
+     * 为 null（纯单测直接 new / 未装配）时走「直接执行」旧路径 —— 19 个契约锁测试类不受影响。
+     */
+    private ResidentAgentRegistry residentAgentRegistry;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setResidentAgentRegistry(ResidentAgentRegistry residentAgentRegistry) {
+        this.residentAgentRegistry = residentAgentRegistry;
+    }
+
+    /** 常驻 agent 灰度开关（D8，design §7）：false = 回落直接执行旧路径。默认 true。 */
+    private boolean residentEnabled = true;
+
+    @org.springframework.beans.factory.annotation.Value("${dsh.agent.resident:true}")
+    public void setResidentEnabled(boolean residentEnabled) {
+        this.residentEnabled = residentEnabled;
+    }
+
     public AgentLoopService(LlmGateway llmGateway,
                             SessionService sessionService,
                             ToolRegistry toolRegistry,
@@ -147,6 +170,35 @@ public class AgentLoopService {
         this.dagPlanService = dagPlanService; // 可空：无计划服务则不注入 next-steps
     }
 
+    /** 表面投影 seam（M8 surfaceOp）：可空 —— 未装配（纯单测/旧上下文）时走现状内联窗口逻辑。 */
+    private com.bizfty.anchon.dsh.session.SurfaceProjector surfaceProjector;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setSurfaceProjector(com.bizfty.anchon.dsh.session.SurfaceProjector surfaceProjector) {
+        this.surfaceProjector = surfaceProjector;
+    }
+
+    /** 表面指令读取（M8 surfaceOp）：与 {@link #surfaceProjector} 一起装配才启用 seam 读路径。 */
+    private com.bizfty.anchon.dsh.session.SessionSurfaceStore sessionSurfaceStore;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setSessionSurfaceStore(com.bizfty.anchon.dsh.session.SessionSurfaceStore sessionSurfaceStore) {
+        this.sessionSurfaceStore = sessionSurfaceStore;
+    }
+
+    /** 投影 registry（M9 遮蔽区间表物化）：可空 —— 未装配走 M8 直算（listInstructions + buildSegments）。 */
+    private com.bizfty.anchon.dsh.session.SessionProjectionRegistry projectionRegistry;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setProjectionRegistry(com.bizfty.anchon.dsh.session.SessionProjectionRegistry projectionRegistry) {
+        this.projectionRegistry = projectionRegistry;
+    }
+
+    /** seam 读路径可用：两个 surface bean 都装配（dsh-boot 全量上下文）；否则旧窗口逻辑。 */
+    private boolean surfaceSeamEnabled() {
+        return surfaceProjector != null && sessionSurfaceStore != null;
+    }
+
     /** 生效温度：settings.agent.temperature > AgentLoopProperties.temperature。 */
     public double effectiveTemperature() {
         if (settingsService != null && settingsService.get("agent", "temperature") instanceof Number n) {
@@ -174,7 +226,9 @@ public class AgentLoopService {
      * 自动预留下一轮并继续，直到完成/暂停/阻塞/超限或出错）。
      */
     public AgentRunResult run(AgentRunRequest request) {
-        return runWithGoalContinuation(request, null, null);
+        // 门面委托（M4-2）：入队到该会话 ResidentAgent 串行执行；无注册表/关闭时直接执行旧路径。
+        // 同步语义不变：调用线程 join 至 turn（含 goal 自动续轮）结束。
+        return enqueue(request.sessionId(), "run", () -> runWithGoalContinuation(request, null, null));
     }
 
     /**
@@ -185,6 +239,11 @@ public class AgentLoopService {
      * "No compactable history yet."（不写任何摘要/边界）。
      */
     public String manualCompact(SessionId sessionId) {
+        // 命令项入队（design §4.5：running 时排队等当前 turn 完成）
+        return enqueue(sessionId, "manual-compact", () -> manualCompactInner(sessionId));
+    }
+
+    private String manualCompactInner(SessionId sessionId) {
         List<SessionMessage> history = sessionService.listMessages(sessionId);
         int boundary = compactionBoundary(sessionId);
         int effectiveFrom = Math.min(boundary, history.size());
@@ -198,6 +257,18 @@ public class AgentLoopService {
         int newBoundary = effectiveFrom + plan.compressedCount();
         if (compactionBoundaryStore != null) {
             compactionBoundaryStore.write(sessionId, newBoundary);
+        }
+        if (sessionSurfaceStore != null) {
+            // M8 surfaceOp：压缩以 REPLACE_HEAD 显式记录遮蔽 + 摘要代表行（后续 turn 由
+            // SurfaceProjector 在头部重建摘要视图行并去重末尾物理摘要行）。boundary 仍写以兼容
+            // 非 seam 读 / 回退（D3-A：表面指令存在时 seam 忽略 legacy boundary，不叠加）。
+            try {
+                sessionSurfaceStore.replaceHead(sessionId, newBoundary,
+                        "（历史压缩摘要）\n" + plan.summaryText(), "manual-compact");
+            } catch (RuntimeException e) {
+                log.warn("[Compaction] /compact surface REPLACE_HEAD 写失败（降级：仅 boundary），session={}",
+                        sessionId, e);
+            }
         }
         log.info("[Compaction] /compact session={} 手动压缩: 省略 {} 条，保留 {} 条，新边界 {}",
                 sessionId, plan.compressedCount(), plan.tail().size(), newBoundary);
@@ -221,7 +292,88 @@ public class AgentLoopService {
         if (onToken == null) {
             throw new IllegalArgumentException("onToken 不能为 null");
         }
-        return runWithGoalContinuation(request, onToken, onToolEvent);
+        // 门面委托：与 run 同队列（回调透传，在 worker 线程内直通 SSE 订阅）
+        return enqueue(request.sessionId(), "stream", () -> runWithGoalContinuation(request, onToken, onToolEvent));
+    }
+
+    /**
+     * abort API（M4-3，design §4.2）：对象态取消 —— 前端「停止生成」端点的后端落地。
+     * 委托路径（注册表装配）→ 置位 ResidentAgent 协作取消标志（phase→aborted）；
+     * 直接执行路径 → SessionCancellation 兜底。双轨置位保证两条路径的 step 循环检查都命中。
+     */
+    public void abortSession(SessionId sessionId) {
+        if (residentAgentRegistry != null) {
+            residentAgentRegistry.abort(sessionId);
+        }
+        if (sessionCancellation != null) {
+            sessionCancellation.cancel(sessionId.value());
+        }
+    }
+
+    /**
+     * resume 查询 API（M4-4，design §4.3）：会话被 abort 停驻且已有执行身份 → 返回
+     * 该身份（executionId/seriesId 等），供上层以同 executionId 续轮（SSE 续流 / goal resume /
+     * 重启恢复 RestoreAgentRunner）。未停驻/无身份 → 空。只读不触发执行。
+     */
+    public java.util.Optional<ResidentAgent.ResidentState> resumeSession(SessionId sessionId) {
+        if (!residentEnabled || residentAgentRegistry == null) {
+            return java.util.Optional.empty();
+        }
+        return residentAgentRegistry.resume(sessionId);
+    }
+
+    /** 是否已请求取消当前会话执行：SessionCancellation（直接路径）∪ ResidentAgent 对象态（委托路径）。 */
+    private boolean isCancellationRequested(SessionId sessionId) {
+        if (sessionCancellation != null && sessionCancellation.isCancelled(sessionId.value())) {
+            return true;
+        }
+        return residentAgentRegistry != null && residentAgentRegistry.abortRequested(sessionId);
+    }
+
+    /** 清取消状态（每个新 turn 开始时调用，保证新 turn 从干净状态开始）。 */
+    private void clearCancellation(SessionId sessionId) {
+        if (sessionCancellation != null) {
+            sessionCancellation.clear(sessionId.value());
+        }
+        if (residentAgentRegistry != null) {
+            residentAgentRegistry.resetAbort(sessionId);
+        }
+    }
+
+    /**
+     * 门面委托核心（M4-2，design §4.5/D8）：注册表已装配且开关开启 → 入队该会话
+     * {@link ResidentAgent}（FIFO 串行 + 虚拟线程执行者），调用线程 join 等待；
+     * 否则直接执行旧路径（契约锁 / 回退开关 false）。
+     * <p>
+     * 异常语义保持：worker 内抛出的 RuntimeException/Error 经 join 解包后原样上抛
+     * （TURN_ERROR 已在 execute() 内发布，委托不改事件面）。
+     */
+    private <T> T enqueue(SessionId sessionId, String label, Callable<T> task) {
+        ResidentAgent agent = residentEnabled && residentAgentRegistry != null
+                ? residentAgentRegistry.agent(sessionId)
+                : null;
+        if (agent == null) {
+            try {
+                return task.call();
+            } catch (RuntimeException | Error e) {
+                throw e;
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        }
+        CompletableFuture<T> future = agent.submit(label, task);
+        try {
+            return future.join();
+        } catch (CompletionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof RuntimeException re) {
+                throw re;
+            }
+            if (cause instanceof Error er) {
+                throw er;
+            }
+            throw new RuntimeException(cause);
+        }
     }
 
     /**
@@ -403,9 +555,7 @@ public class AgentLoopService {
         String executionId = request.executionId() == null ? "run-" + UUID.randomUUID() : request.executionId();
 
         // ---- turn 打开 ----
-        if (sessionCancellation != null) {
-            sessionCancellation.clear(sessionId.value()); // 新 turn 从干净状态开始
-        }
+        clearCancellation(sessionId); // 新 turn 从干净状态开始（SessionCancellation + ResidentAgent 对象态）
         eventBus.publish(sessionId, SessionEventType.TURN_START,
                 Map.of("executionId", executionId, "model", model));
         sessionService.append(sessionId, MessageRole.USER, request.userMessage(), null, null, null);
@@ -437,53 +587,85 @@ public class AgentLoopService {
         CompactionView compaction = maybeCompact(sessionId, history, executionId);
         history = compaction.messages();
         // 当前用户消息已在上文持久化（history 最后一条），回放时排除，避免重复注入。
-        // 压缩发生时本 turn 已用「摘要 + 尾部」视图；未压缩时从遮蔽边界起播，
-        // 不再重发已被摘要覆盖的历史头（shadow boundary，对应 DSH surfaceOp replace）。
-        int from = compaction.compacted()
-                ? Math.max(0, history.size() - properties.maxHistoryMessages())
-                : Math.max(compaction.boundary(), Math.max(0, history.size() - properties.maxHistoryMessages()));
-        int toExclusive = history.size() - 1; // 排除刚写入的当前 USER 消息
-        // 配对过滤：滑动窗口/压缩边界可能把 assistant(tool_calls) 与其 TOOL 响应切开，
-        // 导致模型收到 "tool_calls 无对应 tool 消息" 的 400（OpenAI 校验）。
-        // 规则：只保留"完整对" — assistant 的 tool_calls 必须被窗口内 TOOL 全覆盖（否则只发文本），
-        // TOOL 只发其 tool_call_id 属于某个完整 assistant 的（孤立 TOOL 跳过）。
-        java.util.Set<String> windowToolIds = new java.util.HashSet<>();
-        for (int i = from; i < toExclusive; i++) {
-            SessionMessage m = history.get(i);
-            if (m.role() == MessageRole.TOOL && m.toolCallId() != null) {
-                windowToolIds.add(m.toolCallId());
+        // 压缩发生时本 turn 已用「摘要 + 尾部」视图；未压缩时优先走 M8 surface seam ——
+        // SurfaceProjector 计算模型可见序列：空表面指令时与现状（遮蔽边界 + 尾部窗口 +
+        // 配对过滤 + 排除当前 USER）逐条等价（红线2）；装配 seam 的会话写 surface 指令后
+        // （压缩 REPLACE_HEAD / 折叠 REPLACE_RANGE）由 seam 解析可见面。
+        if (surfaceSeamEnabled() && !compaction.compacted()) {
+            List<SessionMessage> visible;
+            final List<SessionMessage> seamHistory = history; // lambda 捕获需 effectively final（history 已重赋值）
+            if (projectionRegistry != null) {
+                // M9 投影 registry：遮蔽区间表物化（命中零 DB 指令读 + 零 O(K²) 重建；写后由
+                // SessionSurfaceStore 直失效 + SESSION_SURFACE_CHANGED 事件兜底）。无表面指令的会话
+                // 不建快照 → 与 M8 一致走 legacy fast-path（boundary 实时值，见下 orElseGet）。
+                var projection = projectionRegistry.snapshot(sessionId,
+                        () -> sessionSurfaceStore.listInstructions(sessionId),
+                        () -> sessionSurfaceStore.currentGeneration(sessionId));
+                visible = projection
+                        .map(p -> surfaceProjector.projectVisible(seamHistory, p,
+                                properties.maxHistoryMessages(), 1))
+                        .orElseGet(() -> surfaceProjector.projectVisible(
+                                seamHistory, List.<com.bizfty.anchon.dsh.session.SurfaceInstruction>of(),
+                                compaction.boundary(), properties.maxHistoryMessages(), 1));
+            } else {
+                // M8 直算契约锁路径（未装配 registry）：原始指令 + 遮蔽区间表读时重建。
+                List<com.bizfty.anchon.dsh.session.SurfaceInstruction> surfaceOps =
+                        sessionSurfaceStore.listInstructions(sessionId);
+                visible = surfaceProjector.projectVisible(
+                        seamHistory, surfaceOps, compaction.boundary(), properties.maxHistoryMessages(), 1);
             }
-        }
-        java.util.Set<String> completeAssistantToolIds = new java.util.HashSet<>();
-        for (int i = from; i < toExclusive; i++) {
-            SessionMessage m = history.get(i);
-            if (m.role() == MessageRole.ASSISTANT && m.toolCallsJson() != null) {
-                var tcs = parseToolCalls(m.toolCallsJson());
-                if (!tcs.isEmpty() && tcs.stream().allMatch(tc -> windowToolIds.contains(tc.id()))) {
-                    tcs.forEach(tc -> completeAssistantToolIds.add(tc.id()));
+            for (SessionMessage visibleMsg : visible) {
+                messages.add(messageProjector.project(visibleMsg));
+            }
+        } else {
+            // 现状路径（未装配 seam / 压缩当 turn 特制 [摘要+tail] 视图）：窗口切片 + 配对过滤 + 渲染。
+            int from = compaction.compacted()
+                    ? Math.max(0, history.size() - properties.maxHistoryMessages())
+                    : Math.max(compaction.boundary(), Math.max(0, history.size() - properties.maxHistoryMessages()));
+            int toExclusive = history.size() - 1; // 排除刚写入的当前 USER 消息
+            // 配对过滤：滑动窗口/压缩边界可能把 assistant(tool_calls) 与其 TOOL 响应切开，
+            // 导致模型收到 "tool_calls 无对应 tool 消息" 的 400（OpenAI 校验）。
+            // 规则：只保留"完整对" — assistant 的 tool_calls 必须被窗口内 TOOL 全覆盖（否则只发文本），
+            // TOOL 只发其 tool_call_id 属于某个完整 assistant 的（孤立 TOOL 跳过）。
+            java.util.Set<String> windowToolIds = new java.util.HashSet<>();
+            for (int i = from; i < toExclusive; i++) {
+                SessionMessage m = history.get(i);
+                if (m.role() == MessageRole.TOOL && m.toolCallId() != null) {
+                    windowToolIds.add(m.toolCallId());
                 }
             }
-        }
-        for (int i = from; i < toExclusive; i++) {
-            SessionMessage m = history.get(i);
-            if (m.role() == MessageRole.ASSISTANT) {
-                var tcs = m.toolCallsJson() == null ? List.<AssistantMessage.ToolCall>of() : parseToolCalls(m.toolCallsJson());
-                if (!tcs.isEmpty()) {
-                    boolean complete = tcs.stream().allMatch(tc -> windowToolIds.contains(tc.id()));
-                    if (!complete) {
-                        // tool_calls 未被窗口内 TOOL 完整覆盖：只发文本，避免 400
-                        messages.add(new AssistantMessage(m.content() == null ? "" : m.content()));
-                        continue;
+            java.util.Set<String> completeAssistantToolIds = new java.util.HashSet<>();
+            for (int i = from; i < toExclusive; i++) {
+                SessionMessage m = history.get(i);
+                if (m.role() == MessageRole.ASSISTANT && m.toolCallsJson() != null) {
+                    var tcs = parseToolCalls(m.toolCallsJson());
+                    if (!tcs.isEmpty() && tcs.stream().allMatch(tc -> windowToolIds.contains(tc.id()))) {
+                        tcs.forEach(tc -> completeAssistantToolIds.add(tc.id()));
                     }
                 }
-                messages.add(messageProjector.project(m));
-            } else if (m.role() == MessageRole.TOOL && m.toolCallId() != null
-                    && !completeAssistantToolIds.contains(m.toolCallId())) {
-                continue; // 孤立 TOOL：其 assistant(tool_calls) 不在窗口内（或已被剥离），跳过
-            } else {
-                messages.add(messageProjector.project(m));
+            }
+            for (int i = from; i < toExclusive; i++) {
+                SessionMessage m = history.get(i);
+                if (m.role() == MessageRole.ASSISTANT) {
+                    var tcs = m.toolCallsJson() == null ? List.<AssistantMessage.ToolCall>of() : parseToolCalls(m.toolCallsJson());
+                    if (!tcs.isEmpty()) {
+                        boolean complete = tcs.stream().allMatch(tc -> windowToolIds.contains(tc.id()));
+                        if (!complete) {
+                            // tool_calls 未被窗口内 TOOL 完整覆盖：只发文本，避免 400
+                            messages.add(new AssistantMessage(m.content() == null ? "" : m.content()));
+                            continue;
+                        }
+                    }
+                    messages.add(messageProjector.project(m));
+                } else if (m.role() == MessageRole.TOOL && m.toolCallId() != null
+                        && !completeAssistantToolIds.contains(m.toolCallId())) {
+                    continue; // 孤立 TOOL：其 assistant(tool_calls) 不在窗口内（或已被剥离），跳过
+                } else {
+                    messages.add(messageProjector.project(m));
+                }
             }
         }
+
         messages.add(new UserMessage(request.userMessage()));
 
         ToolContext toolContext = ToolContext.builder()
@@ -518,14 +700,21 @@ public class AgentLoopService {
                     sessionId, executionId, headerFingerprint, compaction.compacted());
         }
         int stepInSeries = 0;
+        // 身份收编（M4-4）：委托路径下把 executionId/agentId/seriesId/fingerprint 记录到
+        // ResidentAgent 对象态 —— resume/重启恢复（m4-5 AGENT_PHASE 事件）据此续轮。
+        if (residentEnabled && residentAgentRegistry != null) {
+            residentAgentRegistry.recordIdentity(sessionId, executionId, agent.id(), series.seriesId(), headerFingerprint);
+        }
 
         // ---- step 循环 ----
         int steps = 0;
         int toolCalls = 0;
         while (true) {
-            // 协作式取消：前端「停止生成」→ cancel() 置位 → 模型/工具间隙停止
-            if (sessionCancellation != null && sessionCancellation.isCancelled(sessionId.value())) {
-                sessionCancellation.clear(sessionId.value());
+            // 协作式取消（M4-3 对象态收编）：前端「停止生成」→ abortSession() 置位
+            // （ResidentAgent 对象态 ∪ SessionCancellation）→ 模型/工具间隙停止。
+            // 非流式取消检查点在 step 间隙（工具轮之后、下一模型调用之前）：工具不中断。
+            if (isCancellationRequested(sessionId)) {
+                clearCancellation(sessionId);
                 throw new AgentCancelledException("任务已被用户取消");
             }
             steps++;
@@ -735,6 +924,12 @@ public class AgentLoopService {
             }
             Flux<ChatResponse> flux = llmGateway.stream(messages, options, apiKey);
             flux.doOnNext(chunk -> {
+                // 流式中断（M4-3）：逐 chunk 检查取消 → 抛 AgentCancelledException 终止订阅
+                // （ModelRetryPolicy 白名单不重试）；取消延迟 ≈ chunk 间隔，远低于等完整 turn。
+                if (isCancellationRequested(sessionId)) {
+                    clearCancellation(sessionId);
+                    throw new AgentCancelledException("任务已被用户取消（流式中断）");
+                }
                 Generation generation = chunk.getResult();
                 if (generation != null) {
                     if (generation.getMetadata() != null && generation.getMetadata().getFinishReason() != null) {
@@ -798,6 +993,16 @@ public class AgentLoopService {
         int newBoundary = effectiveFrom + plan.compressedCount();
         if (compactionBoundaryStore != null) {
             compactionBoundaryStore.write(sessionId, newBoundary);
+        }
+        if (sessionSurfaceStore != null) {
+            // M8 surfaceOp：REPLACE_HEAD 记录遮蔽 + 摘要代表行（语义同 manualCompactInner，reason=compaction）。
+            try {
+                sessionSurfaceStore.replaceHead(sessionId, newBoundary,
+                        "（历史压缩摘要）\n" + plan.summaryText(), "compaction");
+            } catch (RuntimeException e) {
+                log.warn("[Compaction] surface REPLACE_HEAD 写失败（降级：仅 boundary），session={}",
+                        sessionId, e);
+            }
         }
         log.info("[Compaction] session={} 压缩完成: 省略 {} 条，保留 {} 条，新边界 {}",
                 sessionId, plan.compressedCount(), plan.tail().size(), newBoundary);

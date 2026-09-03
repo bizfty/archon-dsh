@@ -2,8 +2,11 @@ package com.bizfty.anchon.dsh;
 
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -28,9 +31,42 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 })
 class LiquibaseMigrationTest {
 
+    @Autowired
+    private JdbcTemplate jdbc;
+
     @Test
     void contextLoadsWithLiquibase() {
         // 上下文启动成功即证明 Liquibase 对既有库幂等执行通过（表存在 → MARK_RAN）。
         assertTrue(true);
+    }
+
+    @Test
+    void factSchemaExists() {
+        // M2: anchon_session_fact 表 + UK(session_id,seq) 存在（0007 变更集）。
+        Integer tableCount = jdbc.queryForObject(
+                "select count(*) from information_schema.tables where table_name = 'anchon_session_fact'",
+                Integer.class);
+        assertEquals(1, tableCount, "anchon_session_fact 表应存在");
+
+        Integer ukCount = jdbc.queryForObject(
+                "select count(*) from information_schema.table_constraints" +
+                        " where table_name = 'anchon_session_fact' and constraint_name = 'uk_anchon_fact_session_seq'",
+                Integer.class);
+        assertEquals(1, ukCount, "uk_anchon_fact_session_seq 唯一约束应存在");
+    }
+
+    @Test
+    void surfaceSchemaExists() {
+        // M8: anchon_session_surface 表 + UK(session_id,gen) 存在（0008 变更集）。
+        Integer tableCount = jdbc.queryForObject(
+                "select count(*) from information_schema.tables where table_name = 'anchon_session_surface'",
+                Integer.class);
+        assertEquals(1, tableCount, "anchon_session_surface 表应存在");
+
+        Integer ukCount = jdbc.queryForObject(
+                "select count(*) from information_schema.table_constraints" +
+                        " where table_name = 'anchon_session_surface' and constraint_name = 'uk_anchon_surface_session_gen'",
+                Integer.class);
+        assertEquals(1, ukCount, "uk_anchon_surface_session_gen 唯一约束应存在");
     }
 }

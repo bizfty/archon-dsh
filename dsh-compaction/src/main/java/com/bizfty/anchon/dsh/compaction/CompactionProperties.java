@@ -1,5 +1,6 @@
 package com.bizfty.anchon.dsh.compaction;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -21,6 +22,7 @@ public class CompactionProperties {
         this(enabled, tokenThreshold, keepTailMessages, maxSummaryCharacters, false);
     }
 
+    @Autowired
     public CompactionProperties(
             @Value("${dsh.compaction.enabled:true}") boolean enabled,
             @Value("${dsh.compaction.token-threshold:8000}") long tokenThreshold,

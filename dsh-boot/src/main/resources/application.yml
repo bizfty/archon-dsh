@@ -57,8 +57,17 @@ dsh:
     temperature: 0.7
     max-history-messages: 200
     max-parallel-tool-calls: 10
+    # 常驻 agent 开关（M4，design-resident-agent.md D8）：true=run/stream/manualCompact 委托
+    # per-session ResidentAgent（同会话 FIFO 排队、并发 chat 不报错）；false=直接执行旧路径（灰度回退）
+    resident: true
   event-log:
     include-tokens: false
+  # === 会话读模型开关（M2-5，design §4.5；实际绑定走 DSH_SESSION_READ_MODEL 环境变量，
+  # 此处仅作文档化 —— 本仓库因 harness 环境 dsh.* 前缀污染不用类级 @ConfigurationProperties）===
+  # table（默认）= 读投影缓存 anchon_session_message；fact-replay = 从真相 anchon_session_fact
+  # 只读重放（仅 M2 §6.4 一致性对照验证用，不承载运行时写侧）。
+  session:
+    read-model: table
   agents:
     main:
       provider: deepseek
