@@ -282,9 +282,9 @@ java -jar dsh-boot/target/dsh-boot-0.0.1-SNAPSHOT.jar
 
 | # | 上游能力面（最新） | 上游语义要点 | Java 现状 | 结论/去向 |
 |---|---|---|---|---|
-| 1 | `request/header` **series 化**（reason 增 `'series'`；change 快照可带 `startsSeries: true`；`agent/pre-step` enter decision 声明 `startsRequestSeries`） | 模型消息系列边界在**会话日志层显式声明**：同系列内后续 step/重试/追加 turn 继承最近快照，不重复落全量载荷；8-17 基线尚无此语义（基线仅 initial/resume/change） | 无 durable request 状态事件；以 MODEL_REQUEST/MODEL_RESPONSE **观测事件** + requestPayload 内联全量 messages 表达 | **P1 缺口** → 移植设计 C-① |
+| 1 | `request/header` **series 化**（reason 增 `'series'`；change 快照可带 `startsSeries: true`；`agent/pre-step` enter decision 声明 `startsRequestSeries`） | 模型消息系列边界在**会话日志层显式声明**：同系列内后续 step/重试/追加 turn 继承最近快照，不重复落全量载荷；8-17 基线尚无此语义（基线仅 initial/resume/change） | `ModelCallEventPayloads` 观测载荷含 `RequestSeriesInfo`（initial/resume/change/series + `startsSeries`/`stepInSeries`）；`RequestSeriesTracker` 按 header 指纹（model+prompt+tools+options）定系列；STEP_START/MODEL_REQUEST 携带 seriesId —— **已落地**（C-①，`2458331`，保留每 step 全量 messages 语义；durable 系列判定为 P2） | ✅ 已落地 → C-① |
 | 2 | `request/context`（route capacity 事件） | 路由容量按会话折叠记录（基线即有，Java 一直未覆盖） | 无 | P2 缺口 |
-| 3 | persistence 强化：`SessionHandle` / flush checkpoint / **crash recovery 保留中断 turn** / **format refusal** / `CreateSessionOptions`(seeding) / `SessionHeader` | 崩溃后能恢复被打断的 turn；遇到无法忠实读取的日志格式拒绝加载而非静默损坏 | JPA 消息投影直写，无 flush 检查点/中断恢复/格式拒绝概念 | **P1 缺口** → 移植设计 C-③ |
+| 3 | persistence 强化：`SessionHandle` / flush checkpoint / **crash recovery 保留中断 turn** / **format refusal** / `CreateSessionOptions`(seeding) / `SessionHeader` | 崩溃后能恢复被打断的 turn；遇到无法忠实读取的日志格式拒绝加载而非静默损坏 | `InterruptedTurnRepairer` 启动幂等为 open TURN_START 追加 `TURN_END{finish:"interrupted"}`，已 durable 消息不删 —— **部分落地**（C-③，`2458331`：中断封口）；SessionHandle 写所有权/flush checkpoint/format refusal/seeding 仍 P2 | ✅ 部分落地 → C-③ |
 | 4 | `session-title-all-prompts-llm` cadence（共享 policy 库 `session-title-llm` + `first-prompt`/`all-prompts` 两种 cadence） | all-prompts：每个新 human prompt 后重开标题 revision（种子历史+子会话 prompt，新 revision 中止并取代旧工作）；Java 仅有 first-prompt 语义 | `SessionTitleService` 覆盖 first-prompt（fresh 非 fork 首消息后） | P3 部分缺口（辅助标题策略，低优先） |
 | 5 | `token-meter`（`TokenMeasurement`/`TokenSurfaceNode`，`ctx.tokenMeter`） | 令牌计量子系统（基线已有，小幅演进） | LLM 调用已采集 usage，但无 token 计量服务面 | P3 部分缺口 |
 | 6 | workspace / attachment 能力面（`api/workspace-controller`、`packages/workspace`、`attachment/*` 组） | workspace 打开/多会话维度；附件本地存储 | Java 无 workspace 会话维度、无 attachment 模块 | P3 外围（需产品决策是否引入） |
@@ -293,7 +293,7 @@ java -jar dsh-boot/target/dsh-boot-0.0.1-SNAPSHOT.jar
 
 | 上游能力面 | 说明 | Java 对应 |
 |---|---|---|
-| compaction `tool-result-pruner` seam + `ctx.toolResultPruner` | 工具结果修剪（裁剪/截断/outcome 分类）；该包 8-17 基线**已存在**，非新增 | `dsh-compaction.ToolResultPruner` + `ToolResultPruneProperties`（第二十二轮）+ `dsh-agent.MessageProjector` 截断标记 —— **已覆盖**；C-② 仅做语义对齐复核 |
+| compaction `tool-result-pruner` seam + `ctx.toolResultPruner` | 工具结果修剪（裁剪/截断/outcome 分类）；该包 8-17 基线**已存在**，非新增 | `dsh-compaction.ToolResultPruner` + `ToolResultPruneProperties`（第二十二轮）+ `dsh-agent.MessageProjector` 截断标记；**C-② 已落地**（`2458331`）：`CompactionService` 装配 pruner 后 token 压力按模型可见（截断）视图估算（对齐上游 prune-before-remeasure），附 `ToolResultPruneReport`/`projectedPruneReport` 聚合报告 |
 | compaction shadow boundary（surfaceOp replace） | 压缩遮蔽边界 | `CompactionBoundaryStore` + 边界起播（第十九轮）—— 已覆盖 |
 | scope 作用域注册 | 同键 shadow / 精确优先通配 / AND 收窄 | `AgentScopeRegistry`（第二十轮 P1 闭环）—— 已覆盖 |
 | session 投影（seq 单调消息投影） | 上游 projection seam 强制化 + projection-cache | `MessageProjector` seq 单调 —— 部分覆盖，差注册式 seam/缓存（P2 可选） |
@@ -305,6 +305,8 @@ java -jar dsh-boot/target/dsh-boot-0.0.1-SNAPSHOT.jar
 
 对应 C 轮产出的设计文档（三主题）：
 
-- **C-① series 化 request 日志** —— 见 `docs/design-upstream-migration.md` §1
-- **C-② ToolResultPruner 对齐** —— 见 `docs/design-upstream-migration.md` §2
-- **C-③ 持久化 crash-recovery** —— 见 `docs/design-upstream-migration.md` §3
+设计已全部**落地实现**（`2458331`），实现记录与取舍见 `docs/design-upstream-migration.md` §5；此处仅留设计索引：
+
+- **C-① series 化 request 日志** —— 设计见 `docs/design-upstream-migration.md` §1
+- **C-② ToolResultPruner 对齐** —— 设计见 `docs/design-upstream-migration.md` §2
+- **C-③ 持久化 crash-recovery** —— 设计见 `docs/design-upstream-migration.md` §3
