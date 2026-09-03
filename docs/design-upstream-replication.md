@@ -90,7 +90,7 @@ queue + abort + resume；`AgentLoopService` 保留为**单轮门面**（同步�
 
 | 增量 | 上游 | Java 现状 | 触发条件 |
 |---|---|---|---|
-| schema 单源多消费 | 一套 schema → LLM/UI/ts-py 绑定/presentation | `ToolSchema` 仅供模型，UI 手工表单 | 需要 schema 驱动前端动态表单时 |
+| schema 单源多消费 ✅ | 一套 schema → LLM/UI/ts-py 绑定/presentation | 工具元数据端点 + Settings 描述符（`/api/tools/meta`、`/api/settings/meta`） | 已落地（M10）→ `docs/design-schema-ui.md` |
 | 命令子系统 | commands/* | 仅 `/compact` 特判 | 命令面膨胀时（低成本先落地：命令注册表） |
 | BFF 事件化 | api-session/* | REST + SSE | 多端接入时 |
 | python SDK / ACP / webhook | 有 | 无 | 生态需求时（ACP 可作 JSON-RPC 的扩展） |
@@ -134,6 +134,15 @@ M5  ③+外围（按需）：扩展注册表 / 命令注册表 / schema 驱动 U
   LRU 逐出；SessionSurfaceStore 写后直失效 + SESSION_SURFACE_CHANGED 事件兜底双通道；
   AgentLoop seam registry 优先，命中零 DB 指令读 + 零 O(K²) 重建，未装配/无指令走 legacy fast-path）；
   **全量 mvn verify 全绿（520 tests / 0 failures / 0 errors / 3 skipped）**，红线 §5-1~§5-6 全达成
+- M10 ✅ 外围「schema 驱动 UI」内核②落地（docs/design-frontend-replication.md 路径 C+L2；
+  plan-f2e88817 completed）
+  — 工具元数据单源：`Tool` 注解扩 `displayTitle/summaryKeys`（默认零破坏）+ `GET /api/tools/meta`
+  （name/标题/摘要键/description/inputSchema/审批/超时）；前端 MsgView 删硬编码 TOOL_TITLES/
+  SUMMARY_KEYS → 元数据表渲染 + 泛化兜底，新工具零改前端；
+  — Settings 动态表单：`SettingDescriptor` 机制 + `GET /api/settings/meta`（描述符+当前值合并），
+  agent 命名空间收编（defaults=properties 现值，数值零漂移）；SchemaForm.vue 通用 schema 表单 +
+  SettingsPage.vue + 侧边栏「设置」入口；
+  **mvn verify 全绿（531 tests / 0 failures / 0 errors / 3 skipped）+ vite build 通过**
 > 三支柱机制对齐按裁决范围全部达成：①事件为真（fact 双写/read 开关/一致性对照）、②常驻 agent
 > （同会话并发排队、协作取消/流式中断、executionId resume、AGENT_PHASE 事件化+启动恢复）、
 > ③扩展面（命令注册表收编 if 特判 + 现状扩展机制文档化；统一 DshExtensionRegistry 经裁决不做）。

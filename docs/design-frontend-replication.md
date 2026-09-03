@@ -3,6 +3,8 @@
 > 基线：archon-dsh HEAD `c1400b5` · external/deepseek `76fda72`（2026-09-03）
 > 配套：[design-upstream-replication.md](design-upstream-replication.md)（后端三支柱）、
 > [IMPLEMENTATION_DIFF.md](IMPLEMENTATION_DIFF.md) §9。
+> 落地：**内核②（schema 单源消费）已按路径 C+L2 全量落地（2026-09-04，M10）** →
+> [design-schema-ui.md](design-schema-ui.md)；L1（事件投影 store）与 L3（组件插槽化）未动。
 
 ## 1. 上游前端到底是什么（先纠偏）
 
@@ -71,4 +73,5 @@ L1+L2（独立闭环），再视后端支柱节奏推进。
 "工具元数据端点替换硬编码表"这个最小闭环（收益/成本最高），再做 settings 动态表单。
 若前端非重点，可停在 C。A 在 Java 侧不推荐。
 
-（2026-09-03 定稿：基于文件级核实；待用户圈定档位后出实施计划。）
+（2026-09-03 定稿：基于文件级核实；2026-09-04 用户圈定 **路径 C + L2 全量（内核②全量）**，
+落地见 [design-schema-ui.md](design-schema-ui.md) §6，M10 ✅）
