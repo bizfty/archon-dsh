@@ -21,6 +21,8 @@ public enum SessionEventType {
     STEP_START,
     /** 模型请求发出（含模型/温度等 header 信息） */
     MODEL_REQUEST,
+    /** 模型响应收到（含 finish reason / usage / 输出文本与工具调用） */
+    MODEL_RESPONSE,
     /** 用户消息落日志 */
     USER_MESSAGE,
     /** assistant 文本增量（流式） */

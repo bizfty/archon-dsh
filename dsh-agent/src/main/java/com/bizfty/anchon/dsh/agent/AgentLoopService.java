@@ -11,6 +11,7 @@ import com.bizfty.anchon.dsh.core.prompt.SystemPromptContext;
 import com.bizfty.anchon.dsh.core.prompt.SystemPromptService;
 import com.bizfty.anchon.dsh.core.prompt.ToolRef;
 import com.bizfty.anchon.dsh.llm.LlmGateway;
+import com.bizfty.anchon.dsh.llm.ModelCallEventPayloads;
 import com.bizfty.anchon.dsh.session.SessionService;
 import com.bizfty.anchon.dsh.tool.AgentToolCallback;
 import com.bizfty.anchon.dsh.tool.ToolContext;
@@ -33,7 +34,6 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -183,7 +183,7 @@ public class AgentLoopService {
         if (effective.size() < 2) {
             return "No compactable history yet.";
         }
-        var plan = compactionService.compress(effective, llmGateway);
+        var plan = compactionService.compress(sessionId, effective, llmGateway);
         sessionService.append(sessionId, MessageRole.USER,
                 "（历史压缩摘要）\n" + plan.summaryText(), null, null, null);
         int newBoundary = effectiveFrom + plan.compressedCount();
@@ -550,7 +550,7 @@ public class AgentLoopService {
             toolCalls += toolCallsList.size();
             sessionService.append(sessionId, MessageRole.ASSISTANT,
                     assistant.getText() == null ? "" : assistant.getText(),
-                    null, null, jsonUtils.toJson(serializeToolCalls(toolCallsList)));
+                    null, null, jsonUtils.toJson(ModelCallEventPayloads.serializeToolCalls(toolCallsList)));
             eventBus.publish(sessionId, SessionEventType.ASSISTANT_MESSAGE,
                     Map.of("tool_calls", toolCallsList.size()));
 
@@ -659,13 +659,26 @@ public class AgentLoopService {
     /** 非流式 step（带重试：瞬时失败退避重试，对应 DSH turn 级恢复点）。 */
     private StepOutcome callStep(SessionId sessionId, List<Message> messages,
                                  OpenAiChatOptions options, String model, String apiKey) {
-        eventBus.publish(sessionId, SessionEventType.MODEL_REQUEST, Map.of("model", model));
+        eventBus.publish(sessionId, SessionEventType.MODEL_REQUEST, ModelCallEventPayloads.requestPayload(
+                model, messages, options, ModelCallEventPayloads.CALL_SITE_AGENT_TURN));
         ChatResponse response = retryPolicy.executeWithRetry(() -> llmGateway.call(messages, options, apiKey));
         Generation generation = response.getResult();
         if (generation == null) {
+            eventBus.publish(sessionId, SessionEventType.MODEL_RESPONSE, ModelCallEventPayloads.responsePayload(
+                    model, null, null, null,
+                    response.getMetadata() == null ? null : response.getMetadata().getUsage(),
+                    ModelCallEventPayloads.CALL_SITE_AGENT_TURN));
             return new StepOutcome(AssistantMessage.builder().build(), null);
         }
-        return new StepOutcome(generation.getOutput(),
+        AssistantMessage output = generation.getOutput();
+        eventBus.publish(sessionId, SessionEventType.MODEL_RESPONSE, ModelCallEventPayloads.responsePayload(
+                model,
+                generation.getMetadata() == null ? null : generation.getMetadata().getFinishReason(),
+                output == null ? null : output.getText(),
+                output == null ? null : output.getToolCalls(),
+                response.getMetadata() == null ? null : response.getMetadata().getUsage(),
+                ModelCallEventPayloads.CALL_SITE_AGENT_TURN));
+        return new StepOutcome(output,
                 generation.getMetadata() == null ? null : generation.getMetadata().getFinishReason());
     }
 
@@ -678,10 +691,12 @@ public class AgentLoopService {
     private StepOutcome streamStep(SessionId sessionId, List<Message> messages,
                                    OpenAiChatOptions options, Consumer<String> onToken, String model,
                                    String apiKey) {
-        eventBus.publish(sessionId, SessionEventType.MODEL_REQUEST, Map.of("model", model));
+        eventBus.publish(sessionId, SessionEventType.MODEL_REQUEST, ModelCallEventPayloads.requestPayload(
+                model, messages, options, ModelCallEventPayloads.CALL_SITE_AGENT_TURN));
         StringBuilder text = new StringBuilder();
         AtomicReference<List<AssistantMessage.ToolCall>> toolCalls = new AtomicReference<>();
         AtomicReference<String> finishReason = new AtomicReference<>();
+        AtomicReference<org.springframework.ai.chat.metadata.Usage> usage = new AtomicReference<>();
         AtomicBoolean forwarded = new AtomicBoolean(false);
         retryPolicy.executeWithRetry(() -> {
             if (forwarded.get()) {
@@ -710,13 +725,20 @@ public class AgentLoopService {
                         }
                     }
                 }
+                if (chunk.getMetadata() != null && chunk.getMetadata().getUsage() != null) {
+                    usage.set(chunk.getMetadata().getUsage());
+                }
             }).blockLast();
             return null;
         });
-        return new StepOutcome(AssistantMessage.builder()
+        AssistantMessage output = AssistantMessage.builder()
                 .content(text.toString())
                 .toolCalls(toolCalls.get() == null ? List.of() : toolCalls.get())
-                .build(), finishReason.get());
+                .build();
+        eventBus.publish(sessionId, SessionEventType.MODEL_RESPONSE, ModelCallEventPayloads.responsePayload(
+                model, finishReason.get(), output.getText(), output.getToolCalls(), usage.get(),
+                ModelCallEventPayloads.CALL_SITE_AGENT_TURN));
+        return new StepOutcome(output, finishReason.get());
     }
 
     /**
@@ -739,7 +761,7 @@ public class AgentLoopService {
         }
         log.info("[Compaction] session={} 历史 {} 条消息超阈值（有效 {} 条），开始压缩",
                 sessionId, history.size(), effective.size());
-        var plan = compactionService.compress(effective, llmGateway);
+        var plan = compactionService.compress(sessionId, effective, llmGateway);
         sessionService.append(sessionId, MessageRole.USER,
                 "（历史压缩摘要）\n" + plan.summaryText(), null, null, null);
         int newBoundary = effectiveFrom + plan.compressedCount();
@@ -772,19 +794,6 @@ public class AgentLoopService {
             return agent.model();
         }
         return llmGateway.defaultModel();
-    }
-
-    private List<Map<String, String>> serializeToolCalls(List<AssistantMessage.ToolCall> toolCalls) {
-        return toolCalls.stream()
-                .map(tc -> {
-                    Map<String, String> m = new LinkedHashMap<>();
-                    m.put("id", tc.id());
-                    m.put("type", tc.type());
-                    m.put("name", tc.name());
-                    m.put("arguments", tc.arguments());
-                    return m;
-                })
-                .toList();
     }
 
     /** 反序列化持久化的 tool_calls（与 serializeToolCalls 互逆；null/空 → 空列表）。 */

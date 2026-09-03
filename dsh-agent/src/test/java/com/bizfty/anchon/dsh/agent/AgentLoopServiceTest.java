@@ -11,6 +11,7 @@ import com.bizfty.anchon.dsh.core.model.SessionMessage;
 import com.bizfty.anchon.dsh.core.prompt.SystemPromptContext;
 import com.bizfty.anchon.dsh.core.prompt.SystemPromptService;
 import com.bizfty.anchon.dsh.llm.LlmGateway;
+import com.bizfty.anchon.dsh.llm.ModelCallEventPayloads;
 import com.bizfty.anchon.dsh.session.SessionService;
 import com.bizfty.anchon.dsh.tool.AgentTool;
 import com.bizfty.anchon.dsh.tool.Tool;
@@ -192,6 +193,27 @@ class AgentLoopServiceTest {
         assertTrue(types.contains(SessionEventType.TOOL_CALL));
         assertTrue(types.contains(SessionEventType.TOOL_RESULT));
         assertTrue(types.contains(SessionEventType.TURN_END));
+        // MODEL_REQUEST / MODEL_RESPONSE：模型调用面事件及载荷（含 callSite/消息快照/工具调用/文本）
+        assertTrue(types.contains(SessionEventType.MODEL_REQUEST));
+        assertTrue(types.contains(SessionEventType.MODEL_RESPONSE));
+        List<SessionEvent> requests = events.stream()
+                .filter(e -> e.type() == SessionEventType.MODEL_REQUEST).toList();
+        List<SessionEvent> responses = events.stream()
+                .filter(e -> e.type() == SessionEventType.MODEL_RESPONSE).toList();
+        assertEquals(2, requests.size(), "两步 turn 应发两次 MODEL_REQUEST");
+        assertEquals(2, responses.size(), "两步 turn 应发两次 MODEL_RESPONSE");
+        assertEquals(ModelCallEventPayloads.CALL_SITE_AGENT_TURN, requests.get(0).payload().get("callSite"));
+        assertEquals(ModelCallEventPayloads.CALL_SITE_AGENT_TURN, responses.get(0).payload().get("callSite"));
+        // 请求载荷携带完整消息快照：第 2 次请求已含工具结果消息（role=tool）
+        List<?> secondRequestMessages = (List<?>) requests.get(1).payload().get("messages");
+        assertTrue(secondRequestMessages.stream().anyMatch(m ->
+                "tool".equals(((Map<?, ?>) m).get("role"))), "第 2 次请求应包含工具结果消息");
+        // 第 1 次响应携带工具调用；第 2 次响应携带最终文本
+        assertEquals(1, ((List<?>) responses.get(0).payload().get("toolCalls")).size());
+        assertEquals("ok", responses.get(1).payload().get("text"));
+        // 载荷不泄漏敏感字段（apiKey / 工具回调实现）
+        assertFalse(requests.get(0).payload().toString().contains("apiKey"));
+        assertFalse(requests.get(0).payload().toString().contains("toolCallbacks"));
     }
 
     @Test

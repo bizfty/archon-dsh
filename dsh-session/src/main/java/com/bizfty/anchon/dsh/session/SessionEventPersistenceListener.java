@@ -36,6 +36,7 @@ public class SessionEventPersistenceListener {
             SessionEventType.TURN_ERROR,
             SessionEventType.STEP_START,
             SessionEventType.MODEL_REQUEST,
+            SessionEventType.MODEL_RESPONSE,
             SessionEventType.USER_MESSAGE,
             SessionEventType.ASSISTANT_MESSAGE,
             SessionEventType.TOOL_CALL,

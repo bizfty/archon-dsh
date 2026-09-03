@@ -1,9 +1,13 @@
 package com.bizfty.anchon.dsh.compaction;
 
+import com.bizfty.anchon.dsh.core.event.SessionEvent;
+import com.bizfty.anchon.dsh.core.event.SessionEventBus;
+import com.bizfty.anchon.dsh.core.event.SessionEventType;
 import com.bizfty.anchon.dsh.core.model.MessageRole;
 import com.bizfty.anchon.dsh.core.model.SessionId;
 import com.bizfty.anchon.dsh.core.model.SessionMessage;
 import com.bizfty.anchon.dsh.llm.LlmGateway;
+import com.bizfty.anchon.dsh.llm.ModelCallEventPayloads;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.model.ChatResponse;
@@ -77,6 +81,30 @@ class CompactionServiceTest {
         List<SessionMessage> history = bigHistory(30, 200);
         CompactionService.CompressionPlan plan = service.compress(history, new SummaryGateway("y".repeat(5000)));
         assertTrue(plan.summaryText().length() <= 101, "摘要应被截断到上限");
+    }
+
+    @Test
+    void emitsModelCallEventsForCompactionSummary() {
+        SessionEventBus bus = new SessionEventBus();
+        List<SessionEvent> events = new ArrayList<>();
+        bus.addListener(events::add);
+        CompactionService service = new CompactionService(
+                new CompactionProperties(true, 1000, 10, 500), bus);
+        List<SessionMessage> history = bigHistory(30, 200);
+
+        CompactionService.CompressionPlan plan = service.compress(sessionId, history, new SummaryGateway("摘要内容"));
+
+        assertEquals("摘要内容", plan.summaryText());
+        SessionEvent req = events.stream()
+                .filter(e -> e.type() == SessionEventType.MODEL_REQUEST).findFirst().orElseThrow();
+        assertEquals(ModelCallEventPayloads.CALL_SITE_COMPACTION, req.payload().get("callSite"));
+        assertFalse(req.payload().toString().contains("apiKey"));
+        List<?> messages = (List<?>) req.payload().get("messages");
+        assertTrue(messages.size() >= 2, "摘要请求应含 system + user 消息");
+        SessionEvent res = events.stream()
+                .filter(e -> e.type() == SessionEventType.MODEL_RESPONSE).findFirst().orElseThrow();
+        assertEquals(ModelCallEventPayloads.CALL_SITE_COMPACTION, res.payload().get("callSite"));
+        assertEquals("摘要内容", res.payload().get("text"));
     }
 
     /** 摘要网关：返回固定摘要文本。 */
