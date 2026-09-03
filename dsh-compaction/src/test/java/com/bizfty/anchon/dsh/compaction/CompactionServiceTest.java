@@ -198,4 +198,61 @@ class CompactionServiceTest {
         assertEquals(expectedSaved, report.savedCodePoints());
         assertTrue(report.savedCodePoints() > 0);
     }
+
+    // ---- P2-② durable prune 选择 ----
+
+    private com.bizfty.anchon.dsh.core.model.SessionMessage assistantCalls(int seq, String... toolCallIds) {
+        String json = "[" + String.join(",", java.util.Arrays.stream(toolCallIds).map(id ->
+                "{\"id\":\"" + id + "\",\"type\":\"function\",\"name\":\"bash\",\"arguments\":\"{}\"}").toList()) + "]";
+        return new com.bizfty.anchon.dsh.core.model.SessionMessage("a_" + seq, sessionId,
+                com.bizfty.anchon.dsh.core.model.MessageRole.ASSISTANT, "", null, null, json, seq, java.time.Instant.now());
+    }
+
+    private com.bizfty.anchon.dsh.core.model.SessionMessage toolResult(int seq, String toolCallId, String content) {
+        return new com.bizfty.anchon.dsh.core.model.SessionMessage("t_" + seq, sessionId,
+                com.bizfty.anchon.dsh.core.model.MessageRole.TOOL, content, toolCallId, "bash", null, seq, java.time.Instant.now());
+    }
+
+    @Test
+    void selectPrunableToolResultsOnlyOversizedPairedTools() {
+        com.bizfty.anchon.dsh.compaction.ToolResultPruner pruner =
+                new com.bizfty.anchon.dsh.compaction.ToolResultPruner(
+                        new com.bizfty.anchon.dsh.compaction.ToolResultPruneProperties(100, 40, 20));
+        CompactionService service = new CompactionService(
+                new CompactionProperties(true, 1000, 10, 500, true), null, pruner);
+        String big = "A".repeat(300);
+
+        List<com.bizfty.anchon.dsh.core.model.SessionMessage> history = List.of(
+                assistantCalls(1, "call_1", "call_2"),
+                toolResult(2, "call_1", big),      // 配对完整 + 超阈值 → 候选
+                toolResult(3, "call_2", "small"),  // 配对完整但不超阈值 → 否
+                assistantCalls(4, "call_3"),
+                toolResult(5, "call_3", big),      // 配对完整 + 超阈值 → 候选
+                toolResult(6, "call_9", big));     // 孤立 TOOL（无发出 assistant）→ 否
+
+        List<CompactionService.PruneCandidate> candidates = service.selectPrunableToolResults(history);
+        assertEquals(2, candidates.size(), "只应选 call_1 与 call_3 的超阈值完整对");
+        assertTrue(candidates.stream().allMatch(c -> c.originalCodePoints() == 300));
+        assertEquals("t_2", candidates.get(0).messageId());
+        assertEquals("t_5", candidates.get(1).messageId());
+        assertTrue(candidates.get(0).savedCodePoints() > 0);
+
+        CompactionService.ToolResultPruneReport report = service.toPruneReport(candidates);
+        assertEquals(2, report.replacedCount());
+        assertTrue(report.savedCodePoints() > 0);
+    }
+
+    @Test
+    void pruneDisabledIsReportedOff() {
+        CompactionService service = new CompactionService(new CompactionProperties(true, 1000, 10, 500, false));
+        assertFalse(service.pruneOldResultsEnabled());
+    }
+
+    @Test
+    void selectWithoutPrunerReturnsEmpty() {
+        CompactionService service = new CompactionService(new CompactionProperties(true, 1000, 10, 500, true));
+        List<com.bizfty.anchon.dsh.core.model.SessionMessage> history = List.of(
+                assistantCalls(1, "call_1"), toolResult(2, "call_1", "A".repeat(300)));
+        assertTrue(service.selectPrunableToolResults(history).isEmpty());
+    }
 }

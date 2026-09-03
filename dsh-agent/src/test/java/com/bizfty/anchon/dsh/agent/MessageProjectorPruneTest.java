@@ -69,6 +69,30 @@ class MessageProjectorPruneTest {
     }
 
     @Test
+    void durablePrunedToolResultProjectedAsPrunedView() {
+        ToolResultPruner pruner = new ToolResultPruner(new ToolResultPruneProperties(100, 40, 20));
+        MessageProjector projector = new MessageProjector(new JsonUtils(), pruner);
+        String huge = "A".repeat(50) + "x".repeat(5000) + "Z".repeat(50);
+        SessionMessage pruned = new SessionMessage("m_pruned", sessionId, MessageRole.TOOL, huge,
+                "call_1", "bash", null, 1, Instant.now(), true);
+
+        String text = ((ToolResponseMessage) projector.project(pruned)).getResponses().get(0).responseData();
+        assertNotEquals(huge, text, "durable pruned 行应输出截断视图");
+        assertTrue(text.contains(ToolResultPruner.PRUNE_MARKER));
+    }
+
+    @Test
+    void durablePrunedShortContentPassesThroughByPruneIdempotence() {
+        ToolResultPruner pruner = new ToolResultPruner(new ToolResultPruneProperties(100, 40, 20));
+        MessageProjector projector = new MessageProjector(new JsonUtils(), pruner);
+        String small = "ok";
+        SessionMessage pruned = new SessionMessage("m_pruned2", sessionId, MessageRole.TOOL, small,
+                "call_1", "bash", null, 1, Instant.now(), true);
+        assertEquals(small, ((ToolResponseMessage) projector.project(pruned))
+                .getResponses().get(0).responseData(), "prune() 对短内容幂等原样");
+    }
+
+    @Test
     void nonToolRolesUnaffectedByPruner() {
         ToolResultPruner pruner = new ToolResultPruner(new ToolResultPruneProperties(200, 40, 20));
         MessageProjector projector = new MessageProjector(new JsonUtils(), pruner);

@@ -1,0 +1,69 @@
+# DSH P2 schema 演进：durable prune 标记 / 会话乐观锁 / 事件唯一约束（design-p2-hardening B/C）。
+# 只加列/约束、不迁移数据；对既有库幂等（preConditions onFail=MARK_RAN，同 0001 约定）。
+databaseChangeLog:
+  - changeSet:
+      id: 0006-01-message-pruned
+      author: archon
+      changes:
+        - addColumn:
+            tableName: anchon_session_message
+            remarks: 工具结果 durable 修剪标记（P2-②：原文保留，投影截断）
+            columns:
+              - column:
+                  name: pruned
+                  type: BOOLEAN
+                  defaultValueBoolean: false
+                  constraints: { nullable: false }
+      rollback:
+        - dropColumn:
+            tableName: anchon_session_message
+            columnName: pruned
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - columnExists:
+                tableName: anchon_session_message
+                columnName: pruned
+
+  - changeSet:
+      id: 0006-02-session-version
+      author: archon
+      changes:
+        - addColumn:
+            tableName: anchon_session
+            remarks: 会话行乐观锁版本（P2-③：多实例写所有权防线）
+            columns:
+              - column:
+                  name: version
+                  type: BIGINT
+                  defaultValueNumeric: 0
+                  constraints: { nullable: false }
+      rollback:
+        - dropColumn:
+            tableName: anchon_session
+            columnName: version
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - columnExists:
+                tableName: anchon_session
+                columnName: version
+
+  - changeSet:
+      id: 0006-03-event-session-seq-uk
+      author: archon
+      changes:
+        - addUniqueConstraint:
+            constraintName: uk_anchon_event_session_seq
+            tableName: anchon_session_event
+            columnNames: session_id, seq
+            remarks: 多实例事件追加唯一约束（P2-③：seq 冲突 fail-fast，防静默错乱）
+      rollback:
+        - dropUniqueConstraint:
+            constraintName: uk_anchon_event_session_seq
+            tableName: anchon_session_event
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - indexExists:
+                indexName: uk_anchon_event_session_seq

@@ -88,6 +88,13 @@ public class AgentLoopService {
     private final com.bizfty.anchon.dsh.plan.PlanService dagPlanService;
     /** 请求系列跟踪器（C-①）：一 turn = 一 series 边界，step 副本带 stepInSeries。 */
     private final RequestSeriesTracker requestSeriesTracker = new RequestSeriesTracker();
+    /** 事件日志读取（可空：无装配/单测时跳过 durable series 恢复）。 */
+    private com.bizfty.anchon.dsh.session.EventLogReader eventLogReader;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setEventLogReader(com.bizfty.anchon.dsh.session.EventLogReader eventLogReader) {
+        this.eventLogReader = eventLogReader;
+    }
 
     private SessionCancellation sessionCancellation; // 可空：无取消支持时跳过检查
 
@@ -404,7 +411,7 @@ public class AgentLoopService {
         sessionService.append(sessionId, MessageRole.USER, request.userMessage(), null, null, null);
         eventBus.publish(sessionId, SessionEventType.USER_MESSAGE, Map.of("content", request.userMessage()));
         if (sessionTitleService != null) {
-            sessionTitleService.maybeTitle(sessionId, request.userMessage());
+            sessionTitleService.maybeTitle(sessionId, request.userMessage(), executionId);
         }
 
         // ---- 作用域 + 组装 system prompt（每 turn 一次；后续 step 复用文本）----
@@ -427,7 +434,7 @@ public class AgentLoopService {
         List<Message> messages = new ArrayList<>();
         messages.add(new SystemMessage(systemPrompt));
         List<SessionMessage> history = sessionService.listMessages(sessionId);
-        CompactionView compaction = maybeCompact(sessionId, history);
+        CompactionView compaction = maybeCompact(sessionId, history, executionId);
         history = compaction.messages();
         // 当前用户消息已在上文持久化（history 最后一条），回放时排除，避免重复注入。
         // 压缩发生时本 turn 已用「摘要 + 尾部」视图；未压缩时从遮蔽边界起播，
@@ -500,10 +507,16 @@ public class AgentLoopService {
                 .toolCallbacks(callbacks)
                 .build();
 
-        // ---- 请求系列（C-①）：一 turn（execution）= 一 series 边界 ----
+        // ---- 请求系列（C-①/P2）：一 turn（execution）= 一 series 边界；重启后首见走 durable 恢复 ----
         String headerFingerprint = headerFingerprint(model, systemPrompt, toolRefs, options);
-        RequestSeriesTracker.Series series = requestSeriesTracker.onTurn(
-                sessionId, executionId, headerFingerprint, compaction.compacted());
+        RequestSeriesTracker.Series series;
+        if (eventLogReader != null && !requestSeriesTracker.hasState(sessionId)) {
+            series = requestSeriesTracker.onTurnAfterRestart(sessionId, executionId, headerFingerprint,
+                    compaction.compacted(), eventLogReader.lastAgentTurnHeaderFingerprint(sessionId));
+        } else {
+            series = requestSeriesTracker.onTurn(
+                    sessionId, executionId, headerFingerprint, compaction.compacted());
+        }
         int stepInSeries = 0;
 
         // ---- step 循环 ----
@@ -526,8 +539,8 @@ public class AgentLoopService {
                     new com.bizfty.anchon.dsh.llm.ModelCallEventPayloads.RequestSeriesInfo(
                             series.seriesId(), series.reason(), stepInSeries == 1, stepInSeries);
             StepOutcome outcome = onToken != null
-                    ? streamStep(sessionId, messages, options, onToken, model, apiKey, requestSeries)
-                    : callStep(sessionId, messages, options, model, apiKey, requestSeries);
+                    ? streamStep(sessionId, messages, options, onToken, model, apiKey, requestSeries, headerFingerprint)
+                    : callStep(sessionId, messages, options, model, apiKey, requestSeries, headerFingerprint);
             AssistantMessage assistant = outcome.assistant();
 
             // 对齐官方 agent-loop：finish=max-tokens 优先于工具调用检查 ——
@@ -671,9 +684,11 @@ public class AgentLoopService {
     /** 非流式 step（带重试：瞬时失败退避重试，对应 DSH turn 级恢复点）。 */
     private StepOutcome callStep(SessionId sessionId, List<Message> messages,
                                  OpenAiChatOptions options, String model, String apiKey,
-                                 com.bizfty.anchon.dsh.llm.ModelCallEventPayloads.RequestSeriesInfo requestSeries) {
+                                 com.bizfty.anchon.dsh.llm.ModelCallEventPayloads.RequestSeriesInfo requestSeries,
+                                 String headerFingerprint) {
         eventBus.publish(sessionId, SessionEventType.MODEL_REQUEST, ModelCallEventPayloads.requestPayload(
-                model, messages, options, ModelCallEventPayloads.CALL_SITE_AGENT_TURN, requestSeries));
+                model, messages, options, ModelCallEventPayloads.CALL_SITE_AGENT_TURN, requestSeries,
+                headerFingerprint));
         ChatResponse response = retryPolicy.executeWithRetry(() -> llmGateway.call(messages, options, apiKey));
         Generation generation = response.getResult();
         if (generation == null) {
@@ -704,9 +719,11 @@ public class AgentLoopService {
     private StepOutcome streamStep(SessionId sessionId, List<Message> messages,
                                    OpenAiChatOptions options, Consumer<String> onToken, String model,
                                    String apiKey,
-                                   com.bizfty.anchon.dsh.llm.ModelCallEventPayloads.RequestSeriesInfo requestSeries) {
+                                   com.bizfty.anchon.dsh.llm.ModelCallEventPayloads.RequestSeriesInfo requestSeries,
+                                   String headerFingerprint) {
         eventBus.publish(sessionId, SessionEventType.MODEL_REQUEST, ModelCallEventPayloads.requestPayload(
-                model, messages, options, ModelCallEventPayloads.CALL_SITE_AGENT_TURN, requestSeries));
+                model, messages, options, ModelCallEventPayloads.CALL_SITE_AGENT_TURN, requestSeries,
+                headerFingerprint));
         StringBuilder text = new StringBuilder();
         AtomicReference<List<AssistantMessage.ToolCall>> toolCalls = new AtomicReference<>();
         AtomicReference<String> finishReason = new AtomicReference<>();
@@ -766,7 +783,7 @@ public class AgentLoopService {
      * 新边界 = 旧边界 + 本次压缩的头条数（绝对日志下标）；摘要持久化后，后续 turn
      * 从边界起播，不再重放已被摘要覆盖的旧头。
      */
-    private CompactionView maybeCompact(SessionId sessionId, List<SessionMessage> history) {
+    private CompactionView maybeCompact(SessionId sessionId, List<SessionMessage> history, String executionId) {
         int boundary = compactionBoundaryStore == null ? 0 : compactionBoundaryStore.read(sessionId);
         int effectiveFrom = Math.min(boundary, history.size());
         List<SessionMessage> effective = history.subList(effectiveFrom, history.size());
@@ -775,7 +792,7 @@ public class AgentLoopService {
         }
         log.info("[Compaction] session={} 历史 {} 条消息超阈值（有效 {} 条），开始压缩",
                 sessionId, history.size(), effective.size());
-        var plan = compactionService.compress(sessionId, effective, llmGateway);
+        var plan = compactionService.compress(sessionId, effective, llmGateway, executionId);
         sessionService.append(sessionId, MessageRole.USER,
                 "（历史压缩摘要）\n" + plan.summaryText(), null, null, null);
         int newBoundary = effectiveFrom + plan.compressedCount();

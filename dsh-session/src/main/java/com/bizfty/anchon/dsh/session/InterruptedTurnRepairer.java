@@ -107,7 +107,14 @@ public class InterruptedTurnRepairer implements ApplicationRunner {
             payload.put("executionId", openTurn.getExecutionId() == null ? "" : openTurn.getExecutionId());
             SessionEvent closer = SessionEvent.of(SessionId.of(entry.getKey()), SessionEventType.TURN_END,
                     nextSeq, payload);
-            repository.save(SessionEventEntity.from(closer, jsonUtils.toJson(payload)));
+            try {
+                repository.save(SessionEventEntity.from(closer, jsonUtils.toJson(payload)));
+            } catch (org.springframework.dao.DataIntegrityViolationException e) {
+                // P2-③ 写安全：多实例并发修复时同 (sessionId,seq) 冲突 → fail-fast 收敛，
+                // 不中断启动（另一实例已补该封口，幂等语义成立）
+                log.warn("[Repair] session={} 封口追加冲突（多实例并发，跳过）: {}", entry.getKey(), e.getMessage());
+                continue;
+            }
             log.info("[Repair] session={} 中断 turn 封口: executionId={} steps={} toolCalls={} → seq {}",
                     entry.getKey(), payload.get("executionId"), steps, toolCalls, nextSeq);
             repaired++;

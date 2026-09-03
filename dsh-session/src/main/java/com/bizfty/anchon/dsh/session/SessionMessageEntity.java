@@ -44,6 +44,9 @@ public class SessionMessageEntity {
 
     private long seq;
 
+    /** 工具结果 durable 修剪标记（P2-②）：true 时投影层截断视图，原文 content 保留。 */
+    private boolean pruned;
+
     private Instant createdAt;
 
     protected SessionMessageEntity() {
@@ -60,12 +63,13 @@ public class SessionMessageEntity {
         e.toolCallsJson = message.toolCallsJson();
         e.seq = message.seq();
         e.createdAt = message.createdAt();
+        e.pruned = message.pruned();
         return e;
     }
 
     public SessionMessage toDomain() {
         return new SessionMessage(id, SessionId.of(sessionId), MessageRole.valueOf(role), content,
-                toolCallId, toolName, toolCallsJson, seq, createdAt);
+                toolCallId, toolName, toolCallsJson, seq, createdAt, pruned);
     }
 
     public String getId() {
@@ -126,6 +130,14 @@ public class SessionMessageEntity {
 
     public long getSeq() {
         return seq;
+    }
+
+    public boolean isPruned() {
+        return pruned;
+    }
+
+    public void setPruned(boolean pruned) {
+        this.pruned = pruned;
     }
 
     public void setSeq(long seq) {

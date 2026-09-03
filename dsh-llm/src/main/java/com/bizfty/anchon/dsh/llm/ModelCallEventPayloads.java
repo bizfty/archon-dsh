@@ -107,6 +107,21 @@ public final class ModelCallEventPayloads {
     }
 
     /**
+     * MODEL_REQUEST 载荷（带可选系列标注 + header 指纹）：model + callSite + 完整请求消息 +
+     * 非敏感选项 + {@code requestSeries} + {@code headerFingerprint}（仅 agent_turn 对话 header
+     * 快照指纹，供重启后 durable resume/change 判定；辅助调用点与旧调用不传 → 键不存在）。
+     */
+    public static Map<String, Object> requestPayload(String model, List<Message> messages,
+                                                     OpenAiChatOptions options, String callSite,
+                                                     RequestSeriesInfo series, String headerFingerprint) {
+        Map<String, Object> payload = requestPayload(model, messages, options, callSite, series);
+        if (headerFingerprint != null) {
+            payload.put("headerFingerprint", headerFingerprint);
+        }
+        return payload;
+    }
+
+    /**
      * MODEL_RESPONSE 载荷：model + callSite + finish reason + 输出文本 + 工具调用 + usage。
      */
     public static Map<String, Object> responsePayload(String model, String finishReason, String text,

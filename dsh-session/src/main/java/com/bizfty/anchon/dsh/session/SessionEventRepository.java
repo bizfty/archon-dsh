@@ -10,4 +10,7 @@ import java.util.List;
 public interface SessionEventRepository extends JpaRepository<SessionEventEntity, String> {
 
     List<SessionEventEntity> findBySessionIdOrderBySeqAsc(String sessionId);
+
+    /** 某会话指定事件类型最近 N 条（seq 倒序，供 durable series 恢复等定向查询）。 */
+    List<SessionEventEntity> findTop5BySessionIdAndEventTypeOrderBySeqDesc(String sessionId, String eventType);
 }

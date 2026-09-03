@@ -174,4 +174,22 @@ class ModelCallEventPayloadsTest {
         assertEquals(Boolean.TRUE, m.get("startsSeries"));
         assertEquals(3, ((Number) m.get("stepInSeries")).intValue());
     }
+
+    @Test
+    void requestPayloadWritesHeaderFingerprintWhenProvided() {
+        Map<String, Object> payload = ModelCallEventPayloads.requestPayload(
+                "deepseek-chat", List.of(new UserMessage("hi")),
+                OpenAiChatOptions.builder().model("deepseek-chat").build(),
+                ModelCallEventPayloads.CALL_SITE_AGENT_TURN, null, "fp-abc-123");
+        assertEquals("fp-abc-123", payload.get("headerFingerprint"));
+    }
+
+    @Test
+    void requestPayloadOmitsHeaderFingerprintWhenNull() {
+        Map<String, Object> payload = ModelCallEventPayloads.requestPayload(
+                "deepseek-chat", List.of(new UserMessage("hi")),
+                OpenAiChatOptions.builder().model("deepseek-chat").build(),
+                ModelCallEventPayloads.CALL_SITE_SESSION_TITLE, null, null);
+        assertNull(payload.get("headerFingerprint"));
+    }
 }

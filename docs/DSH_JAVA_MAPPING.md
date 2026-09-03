@@ -282,9 +282,9 @@ java -jar dsh-boot/target/dsh-boot-0.0.1-SNAPSHOT.jar
 
 | # | 上游能力面（最新） | 上游语义要点 | Java 现状 | 结论/去向 |
 |---|---|---|---|---|
-| 1 | `request/header` **series 化**（reason 增 `'series'`；change 快照可带 `startsSeries: true`；`agent/pre-step` enter decision 声明 `startsRequestSeries`） | 模型消息系列边界在**会话日志层显式声明**：同系列内后续 step/重试/追加 turn 继承最近快照，不重复落全量载荷；8-17 基线尚无此语义（基线仅 initial/resume/change） | `ModelCallEventPayloads` 观测载荷含 `RequestSeriesInfo`（initial/resume/change/series + `startsSeries`/`stepInSeries`）；`RequestSeriesTracker` 按 header 指纹（model+prompt+tools+options）定系列；STEP_START/MODEL_REQUEST 携带 seriesId —— **已落地**（C-①，`2458331`，保留每 step 全量 messages 语义；durable 系列判定为 P2） | ✅ 已落地 → C-① |
-| 2 | `request/context`（route capacity 事件） | 路由容量按会话折叠记录（基线即有，Java 一直未覆盖） | 无 | P2 缺口 |
-| 3 | persistence 强化：`SessionHandle` / flush checkpoint / **crash recovery 保留中断 turn** / **format refusal** / `CreateSessionOptions`(seeding) / `SessionHeader` | 崩溃后能恢复被打断的 turn；遇到无法忠实读取的日志格式拒绝加载而非静默损坏 | `InterruptedTurnRepairer` 启动幂等为 open TURN_START 追加 `TURN_END{finish:"interrupted"}`，已 durable 消息不删 —— **部分落地**（C-③，`2458331`：中断封口）；SessionHandle 写所有权/flush checkpoint/format refusal/seeding 仍 P2 | ✅ 部分落地 → C-③ |
+| 1 | `request/header` **series 化**（reason 增 `'series'`；change 快照可带 `startsSeries: true`；`agent/pre-step` enter decision 声明 `startsRequestSeries`） | 模型消息系列边界在**会话日志层显式声明**：同系列内后续 step/重试/追加 turn 继承最近快照，不重复落全量载荷；8-17 基线尚无此语义（基线仅 initial/resume/change） | `ModelCallEventPayloads` 载荷含 `RequestSeriesInfo` + `headerFingerprint`（6 参重载）；`RequestSeriesTracker` 定系列 + **durable 恢复**（`EventLogReader` 经事件库最近 agent_turn 指纹判定重启后 resume/change）；辅助调用点（session_title/compaction）带独立 series（`title-`/`compact-`）—— **C-①+P2-① 已落地**（`2458331`+P2，保留每 step 全量 messages） | ✅ 已落地 |
+| 2 | `request/context`（route capacity 事件） | 路由容量按会话折叠记录（基线即有，Java 一直未覆盖） | 无 | P3（无 contextWindow 数据源：Spring AI 无该元数据、无 model→容量注册表；待引入容量注册表后实现，design-p2-hardening D.1） |
+| 3 | persistence 强化：`SessionHandle` / flush checkpoint / **crash recovery 保留中断 turn** / **format refusal** / `CreateSessionOptions`(seeding) / `SessionHeader` | 崩溃后能恢复被打断的 turn；遇到无法忠实读取的日志格式拒绝加载而非静默损坏 | `InterruptedTurnRepairer` 启动幂等封口（C-③）+ **P2-③ 写防线**（会话行 @Version 乐观锁 → `SessionConcurrentModificationException`；事件 `(sessionId,seq)` 唯一约束 fail-fast；Repairer 追加冲突容错）+ **D.3 读取容错**（`EventLogReader.readEvents` 坏行跳过告警 ≈ format-refusal 精神）+ **D.4 seeding**（`createSession(CreateSessionOptions)` 服务层）—— **已落地**；SessionHandle 句柄/flush checkpoint 论证无需（单实例每事件独立事务已等价 durability），多实例同 turn 调度属上层 | ✅ 已落地（C-③ + P2-③/④） |
 | 4 | `session-title-all-prompts-llm` cadence（共享 policy 库 `session-title-llm` + `first-prompt`/`all-prompts` 两种 cadence） | all-prompts：每个新 human prompt 后重开标题 revision（种子历史+子会话 prompt，新 revision 中止并取代旧工作）；Java 仅有 first-prompt 语义 | `SessionTitleService` 覆盖 first-prompt（fresh 非 fork 首消息后） | P3 部分缺口（辅助标题策略，低优先） |
 | 5 | `token-meter`（`TokenMeasurement`/`TokenSurfaceNode`，`ctx.tokenMeter`） | 令牌计量子系统（基线已有，小幅演进） | LLM 调用已采集 usage，但无 token 计量服务面 | P3 部分缺口 |
 | 6 | workspace / attachment 能力面（`api/workspace-controller`、`packages/workspace`、`attachment/*` 组） | workspace 打开/多会话维度；附件本地存储 | Java 无 workspace 会话维度、无 attachment 模块 | P3 外围（需产品决策是否引入） |
@@ -296,7 +296,7 @@ java -jar dsh-boot/target/dsh-boot-0.0.1-SNAPSHOT.jar
 | compaction `tool-result-pruner` seam + `ctx.toolResultPruner` | 工具结果修剪（裁剪/截断/outcome 分类）；该包 8-17 基线**已存在**，非新增 | `dsh-compaction.ToolResultPruner` + `ToolResultPruneProperties`（第二十二轮）+ `dsh-agent.MessageProjector` 截断标记；**C-② 已落地**（`2458331`）：`CompactionService` 装配 pruner 后 token 压力按模型可见（截断）视图估算（对齐上游 prune-before-remeasure），附 `ToolResultPruneReport`/`projectedPruneReport` 聚合报告 |
 | compaction shadow boundary（surfaceOp replace） | 压缩遮蔽边界 | `CompactionBoundaryStore` + 边界起播（第十九轮）—— 已覆盖 |
 | scope 作用域注册 | 同键 shadow / 精确优先通配 / AND 收窄 | `AgentScopeRegistry`（第二十轮 P1 闭环）—— 已覆盖 |
-| session 投影（seq 单调消息投影） | 上游 projection seam 强制化 + projection-cache | `MessageProjector` seq 单调 —— 部分覆盖，差注册式 seam/缓存（P2 可选） |
+| session 投影（seq 单调消息投影） | 上游 projection seam 强制化 + projection-cache | `MessageProjector` seq 单调 + **唯一投影 seam 收敛**（读时截断 + durable pruned 截断集中于此，design-p2-hardening D.2）；缓存论证不引入（pruned 标记会变，失效复杂收益低） |
 | conversation assembly / client ui-* | **client 前端层**组装（ui-conversation/ui-chat/ui-trajectory），非后端能力 | Java 以 REST/SSE 出口替代 —— **不移植**（前端范畴） |
 | `api-session/*` 事件族 + `ctx.sessionController`（BFF 事件化） | 远程 BFF 的活动/状态事件 | Java 直接 REST + SSE —— 架构对应差异，暂不移植 |
 | LLM 词汇（`TokenUsage`/`BlockAssembler`/`LlmCallConfig`/`AppIdentity`） | 上游将调用配置/归因/块装配显式化 | `LlmGateway`/Spring AI 适配已建模 usage 与 finishReason；`AppIdentity` 与本工程 `callSite` 来源字段同旨 —— 部分对齐，可后续补配置信封 |
@@ -310,3 +310,4 @@ java -jar dsh-boot/target/dsh-boot-0.0.1-SNAPSHOT.jar
 - **C-① series 化 request 日志** —— 设计见 `docs/design-upstream-migration.md` §1
 - **C-② ToolResultPruner 对齐** —— 设计见 `docs/design-upstream-migration.md` §2
 - **C-③ 持久化 crash-recovery** —— 设计见 `docs/design-upstream-migration.md` §3
+- **P2 深化（series durable/辅助标注 · durable prune · 写安全 · 其余缺口）** —— 设计见 `docs/design-p2-hardening.md`（已落地，实施记录见该文档 §F）

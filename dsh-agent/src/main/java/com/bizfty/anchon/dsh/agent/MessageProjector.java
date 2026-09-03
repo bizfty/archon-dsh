@@ -23,6 +23,12 @@ import java.util.Map;
  * <p>
  * 注入 {@link ToolResultPruner}（可空）时，超大工具结果在投影层截断
  * （回放安全：日志保留原文，仅模型可见面收窄）。
+ * <p>
+ * 本类是「会话消息 → 模型可见消息」的**唯一投影 seam**（P2-④/D.2 收敛）：
+ * 所有模型可见变换（读时截断、durable pruned 截断）集中于此；新增模型可见
+ * 变换应先评估是否应落在本投影层（与「Model-visible ⟺ logged」不变式一致）。
+ * 投影缓存不引入：消息 append-only 但 pruned 标记会在修剪后变化，缓存失效
+ * 复杂且收益低（见 docs/design-p2-hardening.md D.2）。
  */
 @Component
 public class MessageProjector {
@@ -47,14 +53,21 @@ public class MessageProjector {
             case ASSISTANT -> projectAssistant(message);
             case TOOL -> ToolResponseMessage.builder()
                     .responses(List.of(new ToolResponseMessage.ToolResponse(
-                            message.toolCallId(), message.toolName(), prunedContent(message.content()))))
+                            message.toolCallId(), message.toolName(), prunedContent(message))))
                     .build();
         };
     }
 
-    /** 超大工具结果 → 头 + 标记 + 尾（无 pruner 时原样）。 */
-    private String prunedContent(String content) {
+    /**
+     * 模型可见工具结果内容（P2-② seam 收敛）：durable pruned 行或超阈值行 → 截断视图；
+     * 否则原样。无 pruner 时原样（pruned 行不缩水，修剪入口要求装配 pruner）。
+     */
+    private String prunedContent(SessionMessage message) {
+        String content = message.content();
         if (pruner == null) {
+            return content;
+        }
+        if (!message.pruned() && !pruner.needsPruning(content)) {
             return content;
         }
         return pruner.prune(content);

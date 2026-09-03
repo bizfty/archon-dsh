@@ -4,6 +4,7 @@ import com.bizfty.anchon.dsh.core.model.SessionId;
 
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -21,8 +22,9 @@ import java.util.concurrent.ConcurrentHashMap;
  *   <li>{@code change}：header 指纹变化（model / system prompt / 可见工具 / options）；</li>
  *   <li>{@code series}：本 turn 发生了 surface 替换（历史压缩，遮蔽边界推进）。</li>
  * </ul>
- * 优先级：surface 替换 &gt; header 变化 &gt; 新 execution。进程重启后首见为 {@code initial}
- * （durable resume 识别需事件库查询，列为 P2，见 design-upstream-migration.md）。
+ * 优先级：surface 替换 &gt; header 变化 &gt; 新 execution。进程重启后首见经
+ * {@link #onTurnAfterRestart} 用事件库最近 header 指纹判定 durable resume/change（P2 已落地，
+ * 见 docs/design-p2-hardening.md A 节）；同进程内走 {@link #onTurn}（内存态）。
  * <p>
  * 线程安全：per-session 状态存于 {@link ConcurrentHashMap}，多会话可并发推进。
  */
@@ -74,6 +76,43 @@ public class RequestSeriesTracker {
             reason = REASON_RESUME;
         }
 
+        return advance(state, sessionId, executionId, headerFingerprint, reason);
+    }
+
+    /**
+     * 重启/首见恢复判定：进程无该会话内存态时，用事件库最近一次 agent_turn header 指纹
+     * 替代进程内历史，判定 durable resume/change（无 durable 指纹 → initial，与旧行为一致）。
+     * 若调用时已有内存态（并发/误用）则直接回落 {@link #onTurn} 进程内判定。
+     */
+    public Series onTurnAfterRestart(SessionId sessionId, String executionId, String headerFingerprint,
+                                     boolean surfaceReplaced, Optional<String> durableLastHeaderFingerprint) {
+        String key = sessionId.value();
+        State state = states.computeIfAbsent(key, k -> new State());
+        if (state.lastExecutionId != null) {
+            // 已有内存态（本进程已见过该会话）：与 onTurn 等价
+            return onTurn(sessionId, executionId, headerFingerprint, surfaceReplaced);
+        }
+        String reason;
+        if (durableLastHeaderFingerprint.isEmpty()) {
+            reason = REASON_INITIAL;
+        } else if (surfaceReplaced) {
+            reason = REASON_SERIES;
+        } else if (!Objects.equals(durableLastHeaderFingerprint.get(), headerFingerprint)) {
+            reason = REASON_CHANGE;
+        } else {
+            reason = REASON_RESUME;
+        }
+        return advance(state, sessionId, executionId, headerFingerprint, reason);
+    }
+
+    /** 该会话是否有进程内系列状态（无 → 首见，可走 durable 恢复）。 */
+    public boolean hasState(SessionId sessionId) {
+        return states.containsKey(sessionId.value());
+    }
+
+    /** 推进状态并生成 seriesId（一 turn 一 series 边界；重启后 counter 从 1 重计，executionId 唯一）。 */
+    private Series advance(State state, SessionId sessionId, String executionId,
+                           String headerFingerprint, String reason) {
         state.seriesCounter++;
         String seriesId = "s-" + executionId + "-" + state.seriesCounter;
         state.lastExecutionId = executionId;

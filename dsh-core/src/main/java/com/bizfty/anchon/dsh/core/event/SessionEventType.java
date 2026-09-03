@@ -46,5 +46,7 @@ public enum SessionEventType {
     /** 消息反馈记录（不进模型上下文） */
     FEEDBACK,
     /** 会话标题刷新 */
-    TITLE_UPDATED
+    TITLE_UPDATED,
+    /** 工具结果 durable 修剪（P2-②：原文保留、投影截断的观测事件） */
+    TOOL_RESULT_PRUNE
 }

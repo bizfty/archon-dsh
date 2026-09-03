@@ -6,6 +6,7 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 
 import java.time.Instant;
 
@@ -34,6 +35,10 @@ public class SessionEntity {
 
     private Instant createdAt;
     private Instant updatedAt;
+
+    /** 乐观锁版本（P2-③ 写安全：多实例并发更新会话行时后提交者失败）。 */
+    @Version
+    private long version;
 
     protected SessionEntity() {
     }
@@ -108,5 +113,9 @@ public class SessionEntity {
 
     public void setUpdatedAt(Instant updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    public long getVersion() {
+        return version;
     }
 }

@@ -106,4 +106,19 @@ class SessionEventPersistenceListenerTest {
 
         assertTrue(repository.findBySessionIdOrderBySeqAsc("sess_evt5").isEmpty());
     }
+
+    @Test
+    void toolResultPruneEventIsPersisted() {
+        SessionEventBus bus = bus(false);
+        SessionId id = SessionId.of("sess_prune");
+
+        bus.publish(id, SessionEventType.TOOL_RESULT_PRUNE,
+                Map.of("messageId", "m1", "seq", 7L, "toolName", "bash", "savedCodePoints", 123));
+
+        List<SessionEventEntity> events = repository.findBySessionIdOrderBySeqAsc("sess_prune");
+        assertEquals(1, events.size());
+        assertEquals("TOOL_RESULT_PRUNE", events.get(0).getEventType());
+        assertTrue(events.get(0).getPayloadJson().contains("m1"));
+        assertTrue(events.get(0).getPayloadJson().contains("savedCodePoints"));
+    }
 }

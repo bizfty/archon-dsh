@@ -17,6 +17,8 @@ import java.time.Instant;
  * @param toolCallsJson ASSISTANT 消息携带的工具调用列表 JSON（可为 null）
  * @param seq          会话内单调序号（投影顺序）
  * @param createdAt    创建时间
+ * @param pruned       工具结果是否已 durable 修剪（P2-②）：true 时投影层对该 TOOL 行输出
+ *                     {@code 截断视图}，原文 content 保留在行内（日志无损）；非 TOOL / 未修剪恒 false
  */
 public record SessionMessage(
         String id,
@@ -27,7 +29,15 @@ public record SessionMessage(
         String toolName,
         String toolCallsJson,
         long seq,
-        Instant createdAt) {
+        Instant createdAt,
+        boolean pruned) {
+
+    /** 兼容构造（P2 前调用点）：未修剪消息。 */
+    public SessionMessage(String id, SessionId sessionId, MessageRole role, String content,
+                          String toolCallId, String toolName, String toolCallsJson,
+                          long seq, Instant createdAt) {
+        this(id, sessionId, role, content, toolCallId, toolName, toolCallsJson, seq, createdAt, false);
+    }
 
     public boolean hasToolCalls() {
         return toolCallsJson != null && !toolCallsJson.isBlank();

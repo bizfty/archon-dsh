@@ -61,6 +61,16 @@ public class SessionTitleService {
      * @return 是否生成了标题
      */
     public boolean maybeTitle(SessionId sessionId, String firstUserMessage) {
+        return maybeTitle(sessionId, firstUserMessage, null);
+    }
+
+    /**
+     * 为会话生成标题（仅当当前无标题且启用时）。
+     *
+     * @param executionId 所属 turn 的执行标识（非 null 时辅助 MODEL_REQUEST 带独立系列
+     *                    {@code title-<executionId>}，P2-①；null = 旧调用/测试，不带系列）
+     */
+    public boolean maybeTitle(SessionId sessionId, String firstUserMessage, String executionId) {
         if (!enabled || firstUserMessage == null || firstUserMessage.isBlank()) {
             return false;
         }
@@ -79,9 +89,13 @@ public class SessionTitleService {
                     .build();
             String model = options.getModel() == null ? llmGateway.defaultModel() : options.getModel();
             if (eventBus != null) {
+                ModelCallEventPayloads.RequestSeriesInfo series = executionId == null
+                        ? null
+                        : new ModelCallEventPayloads.RequestSeriesInfo("title-" + executionId,
+                                ModelCallEventPayloads.SERIES_REASON_INITIAL, true, 1);
                 eventBus.publish(sessionId, SessionEventType.MODEL_REQUEST,
                         ModelCallEventPayloads.requestPayload(model, messages, options,
-                                ModelCallEventPayloads.CALL_SITE_SESSION_TITLE));
+                                ModelCallEventPayloads.CALL_SITE_SESSION_TITLE, series));
             }
             ChatResponse response = llmGateway.call(messages, options);
             Generation generation = response.getResult();

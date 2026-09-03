@@ -234,3 +234,20 @@ header 指纹（`AgentLoopService.headerFingerprint(model, systemPrompt, toolRef
 | D misc | dsh-session / dsh-agent（注释） | 不变 | 无 | 只增 |
 
 全程不动：messages 内联语义、既有 MODEL_REQUEST/RESPONSE 载荷字段、既有事件类型语义、既有 API 签名（仅新增重载/方法）。schema 演进仅加列/约束，不迁移数据。
+
+---
+
+## F. 实施记录（落地）
+
+P2 全部四主题已按本文实现（DAG `plan-965b5513`），提交 `?`，联合回归 4 模块全绿。**落地 / 差异**对照：
+
+| 主题 | 落地文件 | 与 §设计 的差异与理由 |
+|---|---|---|
+| A series durable/辅助标注 | `ModelCallEventPayloads`（6 参重载 + `headerFingerprint` 键）；`RequestSeriesTracker`（`hasState`/`onTurnAfterRestart`）；`SessionEventRepository`（`findTop5...Desc`）；`EventLogReader`（`lastAgentTurnHeaderFingerprint` 容错解析）；`AgentLoopService`（首见走 durable 恢复、callStep/streamStep 载荷带指纹、maybeTitle/compress 透传 executionId）；`SessionTitleService`（`title-<executionId>` series）；`CompactionService.compress(..., executionId)`（`compact-<executionId>`） | 无实质差异；durable 判定只覆盖重启后首 turn（多实例共享态归 C 写安全，不引入跨实例缓存） |
+| B durable prune | `SessionMessage` record +pruned（9 参兼容构造）；`SessionMessageEntity`/`SessionMessageRepository.markPruned`/`SessionService.markToolResultPruned`；`SessionEventType.TOOL_RESULT_PRUNE`（白名单）；`CompactionProperties.prune-old-results.enabled`（默认关）；`CompactionService`（`selectPrunableToolResults` 纯选择 + `toPruneReport` + estimateTokens pruned 感知）；`MessageProjector` pruned 截断视图；`ToolResultPruneService`（dsh-agent 编排：标记 + 事件）；Liquibase `0006`（`anchon_session_message.pruned`） | **markPruned 编排在 dsh-agent**（dsh-compaction 不依赖 dsh-session 的消息 repository，模块边界）；**不挂钩自动 maybeCompact** — Java 压力估算 v1 已按读时截断视图计长（模型可见 token 不变），durable 标记不改变估算，自动触发无意义；durable 值 = 语义持久化 + 稳定截断承诺 + TOOL_RESULT_PRUNE 观测 + 未来原文降本 seam。TOOL_RESULT_PRUNE 事件 payload 用候选维度（messageId/seq/toolName/码点），非「行替换写」语义 |
+| C 写安全 | `SessionEntity` @Version（乐观锁）；`SessionService.saveSessionRow`（saveAndFlush + 包装 `SessionConcurrentModificationException`）；`SessionEventEntity` @Table uniqueConstraints + Liquibase `0006` 唯一约束 `uk_anchon_event_session_seq`；`InterruptedTurnRepairer` 追加冲突 fail-fast 容错 | 与 §设计一致：不引入 SessionHandle 句柄 / flush checkpoint（单实例每事件独立事务已等价 durability，无内存缓冲），文档化论证 |
+| D misc | route capacity → **不实现**（无 contextWindow 数据源，文档标注 P3）；投影 seam → `MessageProjector` 类注释收敛声明（+B 的 pruned 截断集中）；format-refusal 容错 → `EventLogReader.readEvents`（坏行跳过告警）；seeding → `SessionService.createSession(CreateSessionOptions)`（服务层，REST 不接） | route capacity 不实现是设计内结论；投影缓存论证不引入（B 注释） |
+
+**新增测试**：`ModelCallEventPayloadsTest`(+2)、`RequestSeriesTrackerTest`(+5)、`EventLogReaderTest`(7)、`SessionTitleServiceTest`（回归）、`CompactionServiceTest`(+3)、`MessageProjectorPruneTest`(+2)、`ToolResultPruneServiceTest`(3)、`SessionServiceTest`(+3 乐观锁/seeding/markPruned 等)、`SessionWriteSafetyUnitTest`(3)、`SessionEventPersistenceListenerTest`(+1 TOOL_RESULT_PRUNE)、`InterruptedTurnRepairerTest`（回归）。
+
+**schema 演进**：Liquibase `0006-p2-hardening.yaml`（pruned 列 / version 列 / 事件唯一约束），只增不改、幂等（MARK_RAN）；实体注解与 changelog 双轨（ddl-auto 测试库由注解覆盖）。

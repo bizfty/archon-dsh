@@ -45,7 +45,8 @@ public class SessionEventPersistenceListener {
             SessionEventType.TOOL_ERROR,
             SessionEventType.TOOL_TIMEOUT,
             SessionEventType.APPROVAL_REQUESTED,
-            SessionEventType.QUESTION_REQUESTED);
+            SessionEventType.QUESTION_REQUESTED,
+            SessionEventType.TOOL_RESULT_PRUNE);
 
     private final SessionEventRepository repository;
     private final JsonUtils jsonUtils;

@@ -21,6 +21,9 @@ import java.time.Instant;
 @Entity
 @Table(name = "anchon_session_event", indexes = {
         @Index(name = "idx_anchon_event_session_seq", columnList = "sessionId,seq")
+}, uniqueConstraints = {
+        @jakarta.persistence.UniqueConstraint(name = "uk_anchon_event_session_seq",
+                columnNames = {"sessionId", "seq"})
 })
 public class SessionEventEntity {
 
