@@ -1,5 +1,6 @@
 package com.bizfty.anchon.dsh.api;
 
+import com.bizfty.anchon.dsh.settings.SettingDescriptor;
 import com.bizfty.anchon.dsh.settings.SettingsService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -9,6 +10,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -45,6 +47,20 @@ public class SettingsController {
     @GetMapping("/{namespace}")
     public ResponseEntity<Map<String, Object>> all(@PathVariable String namespace) {
         return ResponseEntity.ok(settingsService.all(namespace));
+    }
+
+    /** schema 单源：已注册描述符的命名空间 → 描述符 + 当前值合并视图（前端动态表单用）。 */
+    @GetMapping("/meta")
+    public ResponseEntity<List<SettingsMetaDto>> meta() {
+        List<SettingsMetaDto> out = settingsService.describedNamespaces().stream()
+                .map(ns -> new SettingsMetaDto(ns, settingsService.describe(ns), settingsService.all(ns)))
+                .toList();
+        return ResponseEntity.ok(out);
+    }
+
+    public record SettingsMetaDto(String namespace,
+                                  List<SettingDescriptor> settings,
+                                  Map<String, Object> values) {
     }
 
     public record SetBody(Object value) {
