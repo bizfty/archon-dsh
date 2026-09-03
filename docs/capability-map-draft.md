@@ -4,6 +4,22 @@
 >
 > 目标技术栈：Spring Boot 4 + Spring AI 2.0，多模块 Maven 工程（一个 DSH 能力组 ≈ 一个 Maven 模块）。
 
+> **信息源版本勘误（2026-09-03）**：本草稿基于上游 **rc.7（`99f6f02`，2026-08-17）** 逐组分析。
+> `external/deepseek` 现已同步至 **`76fda7297`（2026-09-03，v0.1.2-rc.1 之后）**（见
+> [UPSTREAM_SYNC.md](UPSTREAM_SYNC.md)），两组之间相隔 2577 commits。核对结论：
+>
+> - **组级结构与多数包级语义仍可参考**（顶层 `packages/` 组无增删）；
+> - 核心语义演进与**新增/重命名包**请以 [DSH_JAVA_MAPPING.md §7](DSH_JAVA_MAPPING.md) 缺口清单
+>   与 `external/deepseek/docs/subsystems/*.md`（已同步至最新）为准：如 `request/header` series 化
+>   （reason `series` / `startsRequestSeries`）、compaction `tool-result-pruner` seam 描述、
+>   session 持久化 crash-recovery / format refusal、`session-title-*` 拆分为
+>   `session-title-llm`（共享 policy）+ `first-prompt`/`all-prompts` 两种 cadence、
+>   session-persistence 拆为 sqlite/jsonl 后端、新增 projection-cache/telemetry、token-meter 等；
+> - **client/*、apps/* 属前端/产品组装层**，本工程不移植（对应 draft §28 与映射文档 §7.2）。
+>
+> 若需将本 draft 升级到逐组精确匹配最新上游，属独立任务（建议在 C 轮移植设计落地后按需进行）；
+> 在此之前把它当作「能力面导览 + 移植要点」，而非与最新上游的逐包契约。
+
 ## 0. 阅读约定（跨组移植总原则）
 
 DSH 是 Cordis 插件体系，移植到 Spring 时以下概念一一对应：
