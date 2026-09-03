@@ -211,6 +211,7 @@ const TOOLS = [
   { id: 'expert', icon: '🧩', name: '专家套件' },
   { id: 'coder', icon: '💻', name: '代码开发' },
   { id: 'self', icon: '🧬', name: '自我完善' },
+  { id: 'settings', icon: '🔧', name: '设置' },
 ];
 </script>
 

@@ -9,6 +9,7 @@ import GoalView from './components/GoalView.vue';
 import TrajectoryView from './components/TrajectoryView.vue';
 import PlanView from './components/PlanView.vue';
 import ToolsPage from './components/ToolsPage.vue';
+import SettingsPage from './components/SettingsPage.vue';
 import {
   appState, pushNotice, initTheme, setTheme, setModel, setPlanMode,
   THEMES, type ThemeKey,
@@ -348,7 +349,7 @@ async function refreshSubagents(id: string): Promise<void> {
 
 /** 侧边栏「工具」菜单 → 切换视图（工具为独立页面，见 ToolsPage.vue）。 */
 function onSelectTool(id: string): void {
-  appState.view = id as 'chat' | 'plan' | 'goal' | 'trajectory' | 'jobs' | 'coder' | 'self' | 'mcp' | 'skills' | 'expert';
+  appState.view = id as 'chat' | 'plan' | 'goal' | 'trajectory' | 'jobs' | 'coder' | 'self' | 'mcp' | 'skills' | 'expert' | 'settings';
 }
 
 // ---- 常驻 WebSocket 下行（对齐官方：退避重连 + connected/reconnecting）----
@@ -683,6 +684,8 @@ onBeforeUnmount(() => {
     </aside>
     <!-- 工具独立页面（保留侧边栏，右侧为独立页面布局：无 main 页签/输入 dock） -->
     <ToolsPage v-if="isToolView" :view="appState.view" @back="appState.view = 'chat'" />
+    <!-- 设置页（schema 驱动动态表单，独立页面壳同工具页） -->
+    <SettingsPage v-else-if="appState.view === 'settings'" @back="appState.view = 'chat'" />
     <main v-else class="main">
       <header class="header">
         <div class="breadcrumb">

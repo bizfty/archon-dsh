@@ -1,9 +1,9 @@
 <script setup lang="ts">
 // 消息列表：欢迎页 / 消息流（markdown + 高亮 + 净化）/ 工具折叠 / 流式光标 / 问答选择框。
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, ref, shallowRef, watch } from 'vue';
 import { appState, type MessageView } from '../store';
 import { renderMarkdown, escapeHtml } from '../render';
-import { answerQuestion, pendingQuestions, readFile } from '../api';
+import { answerQuestion, listToolMeta, pendingQuestions, readFile, type ToolMeta } from '../api';
 
 const emit = defineEmits<{
   (e: 'choose-workspace'): void;
@@ -99,27 +99,32 @@ function toolArgPath(content: string): string {
   }
 }
 
-/** 各工具的摘要字段（对齐官方 SUMMARY_KEYS：从参数里挑最可读的作摘要）。 */
-const SUMMARY_KEYS: Record<string, string[]> = {
-  read_file: ['path', 'file_path', 'url'],
-  write_file: ['path', 'file_path'],
-  edit: ['path', 'file_path'],
-  glob: ['pattern', 'path'],
-  grep: ['pattern', 'path'],
-  web_fetch: ['url'],
-  web_search: ['query'],
-  subagent: ['prompt'],
-  send_message: ['message'],
-  skill: ['name'],
-  list_agents: [],
-};
+/**
+ * 工具元数据（schema 单源，后端 GET /api/tools/meta 下发）。
+ * 标题/摘要键来自后端 @Tool 注解（displayTitle/summaryKeys）；
+ * null = 未加载/失败 → 渲染走泛化兜底，不阻塞消息流。
+ */
+const toolMeta = shallowRef<Map<string, ToolMeta> | null>(null);
 
-/** 从参数 JSON 里按工具取摘要字段（取第一个非空字符串，取首行）。 */
+async function loadToolMeta(): Promise<void> {
+  try {
+    const metas = await listToolMeta();
+    toolMeta.value = new Map(metas.map((m) => [m.name, m]));
+  } catch {
+    toolMeta.value = null; // 静默降级：泛化兜底（标题 'Tool call' / 启发摘要）
+  }
+}
+
+onMounted(() => {
+  void loadToolMeta();
+});
+
+/** 从参数 JSON 里按工具取摘要字段（优先后端 summaryKeys，取第一个非空字符串，取首行）。 */
 function toolArgSummary(toolName: string, content: string): string {
   if (!content.trimStart().startsWith('{')) return '';
   try {
     const parsed = JSON.parse(content) as Record<string, unknown>;
-    const keys = SUMMARY_KEYS[toolName] ?? [];
+    const keys = toolMeta.value?.get(toolName)?.summaryKeys ?? [];
     for (const key of keys) {
       const v = parsed[key];
       if (typeof v === 'string' && v.trim()) return v.trim().split('\n')[0].slice(0, 80);
@@ -136,24 +141,13 @@ function toolArgSummary(toolName: string, content: string): string {
   }
 }
 
-/** 工具 → 官方变体标题（对齐 tool-call-model 的 VARIANT_TITLES/TOOL_TITLES）。 */
-const TOOL_TITLES: Record<string, string> = {
-  read_file: 'Read',
-  write_file: 'Write',
-  edit: 'Edit',
-  bash: 'Bash',
-  glob: 'Search',
-  grep: 'Search',
-  web_fetch: 'Fetch',
-  run_code: 'Code',
-};
-
+/** 工具行标题：后端元数据 displayTitle（未命中 → 泛化 'Tool call'）。 */
 function toolTitle(toolName: string): string {
-  return TOOL_TITLES[toolName] ?? 'Tool call';
+  return toolMeta.value?.get(toolName)?.displayTitle ?? 'Tool call';
 }
 
 /** 通用工具行：`Read <路径>` / `Search <关键词>` 标题 + 摘要，展开完整输出。
- *  摘要来源：TOOL_CALL → 参数摘要字段（SUMMARY_KEYS）；TOOL_RESULT → 结果首行。 */
+ *  摘要来源：TOOL_CALL → 参数摘要字段（schema summaryKeys）；TOOL_RESULT → 结果首行。 */
 function genericToolRowHtml(m: MessageView): string {
   const content = m.content || '';
   const path = toolArgPath(content);

@@ -1012,3 +1012,58 @@ export async function deleteCodeFile(project: string, path: string, scene: CodeS
   );
   return parse<{ deleted: string }>(resp);
 }
+
+
+// ===== schema 驱动 UI：工具元数据 + 设置描述符（GET /api/tools/meta、/api/settings/meta） =====
+
+/** 工具显示元数据（后端 @Tool 注解 + ToolSchema inputSchema 投影）。 */
+export interface ToolMeta {
+  name: string;
+  displayTitle: string | null;
+  summaryKeys: string[];
+  description: string;
+  inputSchema: Record<string, unknown>;
+  requiresApproval: boolean;
+  timeoutMs: number;
+}
+
+/** 设置项描述符（动态表单 schema 单源）。 */
+export interface SettingDescriptor {
+  key: string;
+  type: string;
+  label: string | null;
+  description: string | null;
+  defaultValue: unknown;
+  options: string[] | null;
+  min: number | null;
+  max: number | null;
+  step: number | null;
+}
+
+/** 设置命名空间（描述符 + 当前值合并视图）。 */
+export interface SettingsNamespace {
+  namespace: string;
+  settings: SettingDescriptor[];
+  values: Record<string, unknown>;
+}
+
+/** 工具元数据列表（标题/摘要键/参数 schema 从后端下发，前端不再硬编码）。 */
+export async function listToolMeta(): Promise<ToolMeta[]> {
+  const resp = await fetch(`${BASE}/api/tools/meta`, { headers: headers(false) });
+  return parse<ToolMeta[]>(resp);
+}
+
+/** 设置描述符 + 当前值（动态表单数据源；仅已注册描述符的命名空间）。 */
+export async function fetchSettingsMeta(): Promise<SettingsNamespace[]> {
+  const resp = await fetch(`${BASE}/api/settings/meta`, { headers: headers(false) });
+  return parse<SettingsNamespace[]>(resp);
+}
+
+/** 保存设置覆盖值（PUT /api/settings/{namespace}/{key}，body {value}）。 */
+export async function putSetting(namespace: string, key: string, value: unknown): Promise<void> {
+  const resp = await fetch(
+    `${BASE}/api/settings/${encodeURIComponent(namespace)}/${encodeURIComponent(key)}`,
+    { method: 'PUT', headers: headers(), body: JSON.stringify({ value }) },
+  );
+  await parse<{ set: boolean }>(resp);
+}
