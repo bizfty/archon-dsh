@@ -12,7 +12,7 @@ import java.util.Map;
 /**
  * skill 工具 — 按名加载技能正文（对应 DSH skill/tool-skill 的加载器）。
  */
-@Tool(name = "skill", description = "加载一个技能的完整说明（正文）。技能名见系统提示中的可用技能列表。")
+@Tool(name = "skill", description = "加载一个技能的完整说明（正文）。技能名见系统提示中的可用技能列表。", summaryKeys = {"name"})
 public class SkillTool implements AgentTool {
 
     private final SkillService skillService;

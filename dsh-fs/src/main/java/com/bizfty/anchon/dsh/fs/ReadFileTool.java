@@ -17,7 +17,7 @@ import java.util.Map;
  * <p>
  * 上限：offset 从 1 开始，limit 默认 2000 行，单文件 51200 字节。
  */
-@Tool(name = "read_file", description = "读取文本文件（窗口化：offset 从 1 开始，limit 默认 2000 行）。")
+@Tool(name = "read_file", description = "读取文本文件（窗口化：offset 从 1 开始，limit 默认 2000 行）。", displayTitle = "Read", summaryKeys = {"path", "file_path", "url"})
 public class ReadFileTool implements AgentTool {
 
     private static final long MAX_BYTES = 51_200;

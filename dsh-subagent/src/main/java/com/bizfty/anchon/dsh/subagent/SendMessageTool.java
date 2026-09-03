@@ -13,7 +13,7 @@ import java.util.Optional;
 /**
  * send_message 工具 — 向既有子代理发消息并等待回复（对应 DSH subagent/tool-subagent-control 的 send_message）。
  */
-@Tool(name = "send_message", description = "向一个已存在的子代理发送消息并等待回复。")
+@Tool(name = "send_message", description = "向一个已存在的子代理发送消息并等待回复。", summaryKeys = {"message"})
 public class SendMessageTool implements AgentTool {
 
     private final SubagentRunner runner;

@@ -22,7 +22,7 @@ import java.util.stream.Stream;
  * <p>
  * pattern 使用 ant-style 双星模式（形如 "** / *.java" 的递归匹配），相对于工作区递归搜索。
  */
-@Tool(name = "glob", description = "按 glob 模式查找文件（如 **/*.java）。")
+@Tool(name = "glob", description = "按 glob 模式查找文件（如 **/*.java）。", displayTitle = "Search", summaryKeys = {"pattern", "path"})
 public class GlobTool implements AgentTool {
 
     private static final int MAX_RESULTS = 500;

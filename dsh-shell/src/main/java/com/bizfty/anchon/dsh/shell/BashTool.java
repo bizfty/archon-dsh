@@ -16,7 +16,7 @@ import java.util.Map;
  * <p>
  * 前台：每次全新进程，无跨调用状态；后台：经 JobService 启动，返回 job_id 供 job_status 查询。
  */
-@Tool(name = "bash", description = "执行 shell 命令。前台（默认）或后台（run_in_background=true，返回 job_id 后用 job_status 查询）。")
+@Tool(name = "bash", description = "执行 shell 命令。前台（默认）或后台（run_in_background=true，返回 job_id 后用 job_status 查询）。", displayTitle = "Bash")
 public class BashTool implements AgentTool {
 
     private final BashExecutor bashExecutor;

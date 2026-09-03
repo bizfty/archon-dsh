@@ -21,7 +21,7 @@ import java.util.stream.Stream;
 /**
  * grep 工具 — 行内正则搜索（对应 DSH fs/tool-fs-search 的 grep；Java 侧自实现，无 ripgrep 依赖）。
  */
-@Tool(name = "grep", description = "在文件树中按正则搜索内容，返回 文件→匹配行 分组。")
+@Tool(name = "grep", description = "在文件树中按正则搜索内容，返回 文件→匹配行 分组。", displayTitle = "Search", summaryKeys = {"pattern", "path"})
 public class GrepTool implements AgentTool {
 
     private static final int MAX_RESULTS = 200;

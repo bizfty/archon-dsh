@@ -15,7 +15,7 @@ import java.util.Map;
 /**
  * write_file 工具 — 写文件（仅限工作区内；对应 DSH fs/tool-fs 的 write）。
  */
-@Tool(name = "write_file", description = "写入文件内容（覆盖写，路径必须在工作区内）。")
+@Tool(name = "write_file", description = "写入文件内容（覆盖写，路径必须在工作区内）。", displayTitle = "Write", summaryKeys = {"path", "file_path"})
 public class WriteFileTool implements AgentTool {
 
     @Override

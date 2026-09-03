@@ -14,7 +14,7 @@ import java.util.Map;
  * <p>
  * 深度守卫：委托深度超限返回结构化错误（子代理不能自我加宽）。
  */
-@Tool(name = "subagent", description = "委托一个子代理执行独立任务并返回结果。适合可并行/可隔离的子任务。")
+@Tool(name = "subagent", description = "委托一个子代理执行独立任务并返回结果。适合可并行/可隔离的子任务。", summaryKeys = {"prompt"})
 public class SubagentTool implements AgentTool {
 
     private final SubagentRunner runner;

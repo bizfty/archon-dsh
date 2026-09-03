@@ -32,4 +32,10 @@ public @interface Tool {
 
     /** 执行超时毫秒（>0 时由执行管线强制超时，默认 0=不限）。 */
     long timeoutMs() default 0;
+
+    /** 前端显示标题（tool-call 行变体标题；空 = 前端泛化兜底 'Tool call'）。仅显示层，不影响 LLM 调用。 */
+    String displayTitle() default "";
+
+    /** 前端摘要键（TOOL_CALL 参数里按序挑最可读字段作摘要；空 = 前端启发兜底）。仅显示层，不影响 LLM 调用。 */
+    String[] summaryKeys() default {};
 }

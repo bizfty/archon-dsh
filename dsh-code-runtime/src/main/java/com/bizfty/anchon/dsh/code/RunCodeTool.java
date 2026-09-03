@@ -18,7 +18,7 @@ import java.util.Map;
  */
 @Tool(name = "run_code",
       description = "执行一段 JavaScript 程序。程序内用 await tools.工具名(参数) 调用可用工具，"
-              + "console.log 输出日志，return 返回结果。适合需要多步计算/多次工具调用的任务。")
+              + "console.log 输出日志，return 返回结果。适合需要多步计算/多次工具调用的任务。", displayTitle = "Code")
 public class RunCodeTool implements AgentTool {
 
     private final ObjectProvider<CodeRuntimeService> runtimeProvider;

@@ -29,6 +29,26 @@ public interface AgentTool {
         return annotation == null ? 0 : annotation.timeoutMs();
     }
 
+    /** 前端显示标题（从 @Tool 注解读取；未声明/空白 → null，前端泛化兜底）。 */
+    default String displayTitle() {
+        Tool annotation = getClass().getAnnotation(Tool.class);
+        if (annotation == null) {
+            return null;
+        }
+        String title = annotation.displayTitle();
+        return title == null || title.isBlank() ? null : title;
+    }
+
+    /** 前端摘要键（从 @Tool 注解读取；未声明 → 空数组，前端启发兜底）。 */
+    default String[] summaryKeys() {
+        Tool annotation = getClass().getAnnotation(Tool.class);
+        if (annotation == null) {
+            return new String[0];
+        }
+        String[] keys = annotation.summaryKeys();
+        return keys == null ? new String[0] : keys;
+    }
+
     /**
      * 是否可并发安全执行（对应 DSH isConcurrencySafe）。
      * <p>

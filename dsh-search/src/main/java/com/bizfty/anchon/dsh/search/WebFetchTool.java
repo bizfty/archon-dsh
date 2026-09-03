@@ -9,7 +9,7 @@ import com.bizfty.anchon.dsh.tool.ToolSchema;
 
 import java.util.Map;
 
-@Tool(name = "web_fetch", description = "抓取一个 http(s) URL 的内容并转为纯文本。")
+@Tool(name = "web_fetch", description = "抓取一个 http(s) URL 的内容并转为纯文本。", displayTitle = "Fetch", summaryKeys = {"url"})
 public class WebFetchTool implements AgentTool {
 
     private final WebFetchService fetchService;

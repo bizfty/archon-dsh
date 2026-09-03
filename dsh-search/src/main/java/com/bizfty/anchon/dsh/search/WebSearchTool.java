@@ -11,7 +11,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-@Tool(name = "web_search", description = "搜索网络（需配置搜索提供者）。")
+@Tool(name = "web_search", description = "搜索网络（需配置搜索提供者）。", summaryKeys = {"query"})
 public class WebSearchTool implements AgentTool {
 
     private final WebSearchService searchService;
