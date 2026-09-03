@@ -1,0 +1,42 @@
+# DSH P2/M2 schema 演进：anchon_session_fact（会话消息事实事件表，design-event-sourced-session.md §4.1）。
+# 只建表/约束、不迁移数据；对既有库幂等（preConditions onFail=MARK_RAN，同 0001 约定）。
+# 与 JPA 实体 SessionFactEntity 一致（含 UK(session_id,seq) = uk_anchon_fact_session_seq）。
+databaseChangeLog:
+  - changeSet:
+      id: 0007-01-session-fact
+      author: archon
+      changes:
+        - createTable:
+            tableName: anchon_session_fact
+            remarks: 会话消息事实事件（append-only 真相，消息序唯一事实源）
+            columns:
+              - column: { name: id, type: VARCHAR(64), constraints: { nullable: false } }
+              - column: { name: session_id, type: VARCHAR(64), constraints: { nullable: false } }
+              - column: { name: seq, type: BIGINT, constraints: { nullable: false } }
+              - column: { name: role, type: VARCHAR(16), constraints: { nullable: false } }
+              - column: { name: content, type: TEXT }
+              - column: { name: tool_call_id, type: VARCHAR(64) }
+              - column: { name: tool_name, type: VARCHAR(128) }
+              - column: { name: tool_calls_json, type: TEXT }
+              - column: { name: pruned, type: BOOLEAN, defaultValueBoolean: false, constraints: { nullable: false } }
+              - column: { name: meta_json, type: TEXT }
+              - column: { name: created_at, type: TIMESTAMP WITH TIME ZONE }
+            primaryKey:
+              columnNames: id
+              constraintName: pk_anchon_session_fact
+        - addUniqueConstraint:
+            constraintName: uk_anchon_fact_session_seq
+            tableName: anchon_session_fact
+            columnNames: session_id, seq
+            remarks: 会话内事实 seq 唯一（多实例/并发兜底第二道防线）
+        - createIndex:
+            indexName: idx_anchon_fact_session
+            tableName: anchon_session_fact
+            columns:
+              - column: { name: session_id }
+      rollback:
+        - dropTable: { tableName: anchon_session_fact }
+      preConditions:
+        - onFail: MARK_RAN
+        - not:
+            - tableExists: { tableName: anchon_session_fact }
