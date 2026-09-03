@@ -235,3 +235,17 @@ compaction/start-end 锁语义与 manual error 分类无竞态需求，不移植
 | C-③ InterruptedTurnRepairer | dsh-session | P1 | 幂等补事件，只增不改 |
 
 全程不动 messages 内联语义、不动既有 MODEL_REQUEST/RESPONSE 载荷字段、不引入无关重构。
+
+---
+
+## 5. 实施记录（v1 代码落地）
+
+v1 已按本设计实现并通过测试（4 模块 123 测试全绿）。**已实现 / 取舍**对照：
+
+| 主题 | 已实现（文件） | 与 §设计 的差异与理由 |
+|---|---|---|
+| ① series | `dsh-llm/ModelCallEventPayloads`（`RequestSeriesInfo` + 5 参 `requestPayload`）；`dsh-agent/RequestSeriesTracker`；`AgentLoopService`（STEP_START/MODEL_REQUEST 带 seriesId，step 内 `stepInSeries` 递增） | 辅助调用点（session_title/compaction）**未**带系列标注（P2，需其自持 executionId 上下文）；tracker 的 initial/resume 为**进程内**判定（durable resume 需事件库查询，P2，见 §1.4 备注） |
+| ② ToolResultPruner | `CompactionService`：装配 pruner 后 `estimateTokens` 对 TOOL 消息按**投影后（截断）**内容计长（对齐上游「pruner 先行 + remeasure」）；新增 `ToolResultPruneReport` + `projectedPruneReport()` 聚合报告 | 未做 §2.4 的 durable 行替换 / `TOOL_RESULT_PRUNE` 事件 — Java 消息投影层（`MessageProjector`）本就对模型做读时截断且日志无损，压力测量改为模型可见视图即等价实现上游意图，无需动 schema/读路径；durable 路径保留为未来选项（报告 API 已就位） |
+| ③ crash-recovery | `dsh-session/InterruptedTurnRepairer`（`ApplicationRunner`，启动幂等追加 `TURN_END{finish:"interrupted"}`；`dsh.session.repair-interrupted-turns=true` 可关） | 与 §3.4 一致；多实例写所有权 / payload schemaVersion 仍为 P2 |
+
+**新增测试**：`ModelCallEventPayloadsTest`（+3）、`RequestSeriesTrackerTest`（5）、`AgentLoopServiceTest`（+1 集成）、`CompactionServiceTest`（+2）、`InterruptedTurnRepairerTest`（3）。

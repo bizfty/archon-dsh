@@ -86,6 +86,8 @@ public class AgentLoopService {
     private final com.bizfty.anchon.dsh.goal.GoalService goalService;
     /** DAG 计划服务（可空：无计划支持时续轮 prompt 不注入 next-steps）。 */
     private final com.bizfty.anchon.dsh.plan.PlanService dagPlanService;
+    /** 请求系列跟踪器（C-①）：一 turn = 一 series 边界，step 副本带 stepInSeries。 */
+    private final RequestSeriesTracker requestSeriesTracker = new RequestSeriesTracker();
 
     private SessionCancellation sessionCancellation; // 可空：无取消支持时跳过检查
 
@@ -498,6 +500,12 @@ public class AgentLoopService {
                 .toolCallbacks(callbacks)
                 .build();
 
+        // ---- 请求系列（C-①）：一 turn（execution）= 一 series 边界 ----
+        String headerFingerprint = headerFingerprint(model, systemPrompt, toolRefs, options);
+        RequestSeriesTracker.Series series = requestSeriesTracker.onTurn(
+                sessionId, executionId, headerFingerprint, compaction.compacted());
+        int stepInSeries = 0;
+
         // ---- step 循环 ----
         int steps = 0;
         int toolCalls = 0;
@@ -508,14 +516,18 @@ public class AgentLoopService {
                 throw new AgentCancelledException("任务已被用户取消");
             }
             steps++;
+            stepInSeries++;
             if (steps > effectiveMaxSteps()) {
                 throw new AgentLoopException("超过最大步数上限: " + effectiveMaxSteps());
             }
-            eventBus.publish(sessionId, SessionEventType.STEP_START, Map.of("step", steps));
+            eventBus.publish(sessionId, SessionEventType.STEP_START, Map.of("step", steps, "seriesId", series.seriesId()));
 
+            com.bizfty.anchon.dsh.llm.ModelCallEventPayloads.RequestSeriesInfo requestSeries =
+                    new com.bizfty.anchon.dsh.llm.ModelCallEventPayloads.RequestSeriesInfo(
+                            series.seriesId(), series.reason(), stepInSeries == 1, stepInSeries);
             StepOutcome outcome = onToken != null
-                    ? streamStep(sessionId, messages, options, onToken, model, apiKey)
-                    : callStep(sessionId, messages, options, model, apiKey);
+                    ? streamStep(sessionId, messages, options, onToken, model, apiKey, requestSeries)
+                    : callStep(sessionId, messages, options, model, apiKey, requestSeries);
             AssistantMessage assistant = outcome.assistant();
 
             // 对齐官方 agent-loop：finish=max-tokens 优先于工具调用检查 ——
@@ -658,9 +670,10 @@ public class AgentLoopService {
 
     /** 非流式 step（带重试：瞬时失败退避重试，对应 DSH turn 级恢复点）。 */
     private StepOutcome callStep(SessionId sessionId, List<Message> messages,
-                                 OpenAiChatOptions options, String model, String apiKey) {
+                                 OpenAiChatOptions options, String model, String apiKey,
+                                 com.bizfty.anchon.dsh.llm.ModelCallEventPayloads.RequestSeriesInfo requestSeries) {
         eventBus.publish(sessionId, SessionEventType.MODEL_REQUEST, ModelCallEventPayloads.requestPayload(
-                model, messages, options, ModelCallEventPayloads.CALL_SITE_AGENT_TURN));
+                model, messages, options, ModelCallEventPayloads.CALL_SITE_AGENT_TURN, requestSeries));
         ChatResponse response = retryPolicy.executeWithRetry(() -> llmGateway.call(messages, options, apiKey));
         Generation generation = response.getResult();
         if (generation == null) {
@@ -690,9 +703,10 @@ public class AgentLoopService {
      */
     private StepOutcome streamStep(SessionId sessionId, List<Message> messages,
                                    OpenAiChatOptions options, Consumer<String> onToken, String model,
-                                   String apiKey) {
+                                   String apiKey,
+                                   com.bizfty.anchon.dsh.llm.ModelCallEventPayloads.RequestSeriesInfo requestSeries) {
         eventBus.publish(sessionId, SessionEventType.MODEL_REQUEST, ModelCallEventPayloads.requestPayload(
-                model, messages, options, ModelCallEventPayloads.CALL_SITE_AGENT_TURN));
+                model, messages, options, ModelCallEventPayloads.CALL_SITE_AGENT_TURN, requestSeries));
         StringBuilder text = new StringBuilder();
         AtomicReference<List<AssistantMessage.ToolCall>> toolCalls = new AtomicReference<>();
         AtomicReference<String> finishReason = new AtomicReference<>();
@@ -780,6 +794,34 @@ public class AgentLoopService {
 
     /** 压缩视图：本 turn 历史 + 是否刚压缩 + 遮蔽边界（未压缩时为旧边界）。 */
     private record CompactionView(List<SessionMessage> messages, boolean compacted, int boundary) {
+    }
+
+    /**
+     * header 指纹（C-①）：model + system prompt 文本 + 可见工具名（排序）+ options 白名单。
+     * 用于判定 series reason 的 change —— messages 不参与（系列内 step 的重复副本）。
+     */
+    private String headerFingerprint(String model, String systemPrompt, List<ToolRef> toolRefs,
+                                     OpenAiChatOptions options) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(model).append('\n').append(systemPrompt == null ? "" : systemPrompt).append('\n');
+        toolRefs.stream().map(ToolRef::name).sorted().forEach(n -> sb.append(n).append('\n'));
+        if (options != null) {
+            sb.append("t=").append(options.getTemperature()).append('\n');
+            sb.append("p=").append(options.getTopP()).append('\n');
+            sb.append("k=").append(options.getTopK()).append('\n');
+            sb.append("m=").append(options.getMaxTokens()).append('\n');
+        }
+        try {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+            byte[] d = md.digest(sb.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder();
+            for (byte b : d) {
+                hex.append(String.format("%02x", b));
+            }
+            return hex.toString();
+        } catch (java.security.NoSuchAlgorithmException e) {
+            return String.valueOf(sb.toString().hashCode());
+        }
     }
 
     private String resolveModel(Session session, String override) {

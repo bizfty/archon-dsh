@@ -59,6 +59,11 @@ class AgentLoopServiceTest {
 
     private AgentLoopService newLoop(ScriptedGateway gateway, List<SessionMessage> persisted,
                                      AtomicInteger echoExecuted) {
+        return newLoop(gateway, persisted, echoExecuted, new SessionEventBus());
+    }
+
+    private AgentLoopService newLoop(ScriptedGateway gateway, List<SessionMessage> persisted,
+                                     AtomicInteger echoExecuted, SessionEventBus bus) {
         SessionService sessionService = mock(SessionService.class);
         when(sessionService.getSession(sessionId)).thenReturn(session);
         when(sessionService.listMessages(sessionId)).thenReturn(persisted);
@@ -67,7 +72,6 @@ class AgentLoopServiceTest {
         when(ctx.getBeansOfType(AgentTool.class)).thenReturn(Map.of("echoTool", new EchoTool(echoExecuted)));
         ToolRegistry registry = new ToolRegistry(ctx);
 
-        SessionEventBus bus = new SessionEventBus();
         ToolExecutionPipeline pipeline = new ToolExecutionPipeline(registry, List.of(), List.of(),
                 new ToolEventPublisher(bus, new JsonUtils()), new JsonUtils());
         SystemPromptService promptService = new SystemPromptService(List.of());
@@ -393,5 +397,44 @@ class AgentLoopServiceTest {
                 .anyMatch(m -> m instanceof AssistantMessage am && am.hasToolCalls());
         assertFalse(hasOrphanTool, "窗口切开时不得发出孤立 TOOL 消息: " + captured);
         assertFalse(hasBareToolCallAssistant, "窗口切开时不得发出无 TOOL 响应的 tool_calls assistant: " + captured);
+    }
+
+    @Test
+    void modelRequestsCarrySeriesInfoAcrossStepsAndTurns() {
+        SessionEventBus bus = new SessionEventBus();
+        java.util.List<com.bizfty.anchon.dsh.core.event.SessionEvent> events = new java.util.ArrayList<>();
+        bus.addListener(events::add, 0);
+        // turn1：工具调用 step + 最终回答 step；turn2：单 step
+        ScriptedGateway gateway = new ScriptedGateway(
+                assistantWithToolCall("call_1", "echo", "{\"text\":\"hi\"}"),
+                assistantText("final answer"),
+                assistantText("second turn answer"));
+        AgentLoopService loop = newLoop(gateway, List.of(), new AtomicInteger(), bus);
+
+        loop.run(AgentRunRequest.builder().sessionId(sessionId).userMessage("请回显 hi").build());
+        loop.run(AgentRunRequest.builder().sessionId(sessionId).userMessage("再来").build());
+
+        java.util.List<java.util.Map<String, Object>> reqs = events.stream()
+                .filter(e -> e.type() == com.bizfty.anchon.dsh.core.event.SessionEventType.MODEL_REQUEST)
+                .map(com.bizfty.anchon.dsh.core.event.SessionEvent::payload)
+                .toList();
+        org.junit.jupiter.api.Assertions.assertEquals(3, reqs.size());
+        // turn1 step1：系列起点 initial
+        java.util.Map<?, ?> s1 = (java.util.Map<?, ?>) reqs.get(0).get("requestSeries");
+        org.junit.jupiter.api.Assertions.assertEquals("initial", s1.get("reason"));
+        org.junit.jupiter.api.Assertions.assertEquals(Boolean.TRUE, s1.get("startsSeries"));
+        org.junit.jupiter.api.Assertions.assertEquals(1, ((Number) s1.get("stepInSeries")).intValue());
+        String seriesId1 = String.valueOf(s1.get("seriesId"));
+        // turn1 step2：同系列、非起点、step 递增
+        java.util.Map<?, ?> s2 = (java.util.Map<?, ?>) reqs.get(1).get("requestSeries");
+        org.junit.jupiter.api.Assertions.assertEquals(seriesId1, s2.get("seriesId"));
+        org.junit.jupiter.api.Assertions.assertEquals(Boolean.FALSE, s2.get("startsSeries"));
+        org.junit.jupiter.api.Assertions.assertEquals(2, ((Number) s2.get("stepInSeries")).intValue());
+        // turn2：新系列（header 未变 → resume）
+        java.util.Map<?, ?> s3 = (java.util.Map<?, ?>) reqs.get(2).get("requestSeries");
+        org.junit.jupiter.api.Assertions.assertEquals("resume", s3.get("reason"));
+        org.junit.jupiter.api.Assertions.assertEquals(Boolean.TRUE, s3.get("startsSeries"));
+        org.junit.jupiter.api.Assertions.assertEquals(1, ((Number) s3.get("stepInSeries")).intValue());
+        org.junit.jupiter.api.Assertions.assertNotEquals(seriesId1, s3.get("seriesId"));
     }
 }

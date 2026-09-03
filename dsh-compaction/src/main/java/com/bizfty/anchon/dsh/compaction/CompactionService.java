@@ -41,24 +41,72 @@ public class CompactionService {
     private final CompactionProperties properties;
     /** 事件总线（Spring 装配时非空；直接 new 的测试场景可传 null → 不发事件）。 */
     private final SessionEventBus eventBus;
+    /** 工具结果投影 pruner（C-②，可空）：装配后 token 压力按「模型可见（截断后）」内容估算。 */
+    private final ToolResultPruner pruner;
 
     public CompactionService(CompactionProperties properties) {
-        this(properties, null);
+        this(properties, null, null);
+    }
+
+    public CompactionService(CompactionProperties properties, SessionEventBus eventBus) {
+        this(properties, eventBus, null);
     }
 
     @Autowired
-    public CompactionService(CompactionProperties properties, SessionEventBus eventBus) {
+    public CompactionService(CompactionProperties properties, SessionEventBus eventBus, ToolResultPruner pruner) {
         this.properties = properties;
         this.eventBus = eventBus;
+        this.pruner = pruner;
     }
 
     /** token 估算：字符数 / 4 + 每消息开销。 */
     public long estimateTokens(SessionMessage message) {
-        long chars = message.content() == null ? 0 : message.content().length();
+        long chars = message.content() == null ? 0 : modelVisibleContentLength(message);
         if (message.toolCallsJson() != null) {
             chars += message.toolCallsJson().length();
         }
         return chars / AVG_CHARS_PER_TOKEN + 4;
+    }
+
+    /**
+     * 模型可见内容长度（C-②）：TOOL 消息且装配了 pruner 时，按投影后（截断）内容计长 —
+     * 与 agent 层 MessageProjector 发送给模型的截断视图一致；无 pruner 或非 TOOL 时按原文。
+     */
+    private long modelVisibleContentLength(SessionMessage message) {
+        String content = message.content();
+        if (content == null) {
+            return 0;
+        }
+        if (pruner == null || message.role() != MessageRole.TOOL) {
+            return content.length();
+        }
+        String pruned = pruner.prune(content);
+        return pruned == null ? 0 : pruned.length();
+    }
+
+    /** 工具结果投影修剪报告（C-②，对齐 compaction-tool-result-pruner 的聚合缩减报告）。 */
+    public record ToolResultPruneReport(int replacedCount, long savedCodePoints) {
+    }
+
+    /**
+     * 统计对 history 中 TOOL 结果应用 pruner（模型可见投影）的省量。行不落库 —
+     * Java 保持「日志无损 + 读时截断」铁律，此报告供压力决策观测与后续 durable 路径使用。
+     */
+    public ToolResultPruneReport projectedPruneReport(List<SessionMessage> history) {
+        if (pruner == null) {
+            return new ToolResultPruneReport(0, 0);
+        }
+        int replaced = 0;
+        long saved = 0;
+        for (SessionMessage m : history) {
+            if (m.role() != MessageRole.TOOL || m.content() == null || !pruner.needsPruning(m.content())) {
+                continue;
+            }
+            replaced++;
+            saved += ToolResultPruner.codePointLength(m.content())
+                    - ToolResultPruner.codePointLength(pruner.prune(m.content()));
+        }
+        return new ToolResultPruneReport(replaced, saved);
     }
 
     public long estimateTokens(List<SessionMessage> history) {

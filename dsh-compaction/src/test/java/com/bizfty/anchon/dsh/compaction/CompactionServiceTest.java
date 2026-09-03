@@ -148,4 +148,54 @@ class CompactionServiceTest {
             return "deepseek-chat";
         }
     }
+
+    // ---- C-② 工具结果投影 pruner 对齐 ----
+
+    private SessionMessage toolMsg(int i, String content) {
+        return new SessionMessage("tool_" + i, sessionId, MessageRole.TOOL, content,
+                "tc_" + i, "bash", null, i, Instant.now());
+    }
+
+    private ToolResultPruner pruner(int threshold, int head, int tail) {
+        return new ToolResultPruner(new ToolResultPruneProperties(threshold, head, tail));
+    }
+
+    @Test
+    void prunerAwarePressureSeesModelVisiblePrunedView() {
+        // 12 条 × 8000 字符的 TOOL 结果：原文远超阈值，但模型可见（截断后）仅 ~109 字符/条
+        List<SessionMessage> history = new ArrayList<>();
+        String big = "y".repeat(8000);
+        for (int i = 1; i <= 12; i++) {
+            history.add(toolMsg(i, big));
+        }
+        CompactionProperties props = new CompactionProperties(true, 1000, 10, 500);
+
+        CompactionService withoutPruner = new CompactionService(props, null, null);
+        assertTrue(withoutPruner.needsCompaction(history), "无 pruner：原文估算应超阈值");
+
+        CompactionService withPruner = new CompactionService(props, null, pruner(2000, 50, 20));
+        assertFalse(withPruner.needsCompaction(history),
+                "装配 pruner：压力按模型可见（截断）视图估算，不应触发压缩（对齐上游 remeasure 语义）");
+    }
+
+    @Test
+    void projectedPruneReportCountsReplacedToolResults() {
+        List<SessionMessage> history = new ArrayList<>();
+        history.add(toolMsg(1, "y".repeat(8000)));
+        history.add(toolMsg(2, "z".repeat(3000)));
+        history.add(msg(3, "small user text")); // 非 TOOL 不参与
+        history.add(toolMsg(4, "tiny"));        // 未超阈值不参与
+
+        CompactionService service = new CompactionService(
+                new CompactionProperties(true, 1000, 10, 500), null, pruner(2000, 50, 20));
+        CompactionService.ToolResultPruneReport report = service.projectedPruneReport(history);
+
+        assertEquals(2, report.replacedCount());
+        long expectedSaved = ToolResultPruner.codePointLength("y".repeat(8000))
+                - ToolResultPruner.codePointLength(pruner(2000, 50, 20).prune("y".repeat(8000)))
+                + ToolResultPruner.codePointLength("z".repeat(3000))
+                - ToolResultPruner.codePointLength(pruner(2000, 50, 20).prune("z".repeat(3000)));
+        assertEquals(expectedSaved, report.savedCodePoints());
+        assertTrue(report.savedCodePoints() > 0);
+    }
 }

@@ -137,4 +137,41 @@ class ModelCallEventPayloadsTest {
         assertNull(payload.get("usage"));
         assertNotNull(payload.get("callSite"));
     }
+
+    @Test
+    void requestPayloadCarriesRequestSeriesWhenProvided() {
+        List<Message> messages = List.of(new UserMessage("hi"));
+        OpenAiChatOptions options = OpenAiChatOptions.builder().model("deepseek-chat").build();
+        var series = new ModelCallEventPayloads.RequestSeriesInfo(
+                "s-run-1-1", ModelCallEventPayloads.SERIES_REASON_INITIAL, true, 1);
+
+        Map<String, Object> payload = ModelCallEventPayloads.requestPayload(
+                "deepseek-chat", messages, options, ModelCallEventPayloads.CALL_SITE_AGENT_TURN, series);
+
+        Map<?, ?> rs = assertInstanceOf(Map.class, payload.get("requestSeries"));
+        assertEquals("s-run-1-1", rs.get("seriesId"));
+        assertEquals("initial", rs.get("reason"));
+        assertEquals(Boolean.TRUE, rs.get("startsSeries"));
+        assertEquals(1, ((Number) rs.get("stepInSeries")).intValue());
+    }
+
+    @Test
+    void requestPayloadOmitsRequestSeriesWhenNull() {
+        Map<String, Object> payload = ModelCallEventPayloads.requestPayload(
+                "deepseek-chat", List.of(new UserMessage("hi")),
+                OpenAiChatOptions.builder().model("deepseek-chat").build(),
+                ModelCallEventPayloads.CALL_SITE_SESSION_TITLE, null);
+        assertNull(payload.get("requestSeries"));
+    }
+
+    @Test
+    void seriesInfoToMapRoundTrips() {
+        var series = new ModelCallEventPayloads.RequestSeriesInfo(
+                "s-run-9-2", ModelCallEventPayloads.SERIES_REASON_SERIES, true, 3);
+        Map<String, Object> m = series.toMap();
+        assertEquals("s-run-9-2", m.get("seriesId"));
+        assertEquals("series", m.get("reason"));
+        assertEquals(Boolean.TRUE, m.get("startsSeries"));
+        assertEquals(3, ((Number) m.get("stepInSeries")).intValue());
+    }
 }
