@@ -3,7 +3,9 @@ package com.bizfty.anchon.dsh.settings;
 import com.bizfty.anchon.dsh.storage.StorageService;
 import org.springframework.stereotype.Service;
 
+import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -18,6 +20,7 @@ public class SettingsService {
 
     private final StorageService storage;
     private final Map<String, Map<String, Object>> defaults = new ConcurrentHashMap<>();
+    private final Map<String, Map<String, SettingDescriptor>> descriptors = new ConcurrentHashMap<>();
 
     public SettingsService(StorageService storage) {
         this.storage = storage;
@@ -26,6 +29,29 @@ public class SettingsService {
     /** 注册命名空间默认值（schema 层）。 */
     public void registerDefaults(String namespace, Map<String, Object> defaultValues) {
         defaults.put(namespace, new LinkedHashMap<>(defaultValues));
+    }
+
+    /** 注册命名空间下某键的描述符（schema 层；与默认值/覆盖独立，可单独注册）。 */
+    public void registerDescriptor(String namespace, SettingDescriptor descriptor) {
+        descriptors.computeIfAbsent(namespace, k ->
+                        Collections.synchronizedMap(new LinkedHashMap<>()))
+                .put(descriptor.key(), descriptor);
+    }
+
+    /** 某命名空间的描述符列表（注册顺序保序）；未注册 → 空列表。 */
+    public List<SettingDescriptor> describe(String namespace) {
+        Map<String, SettingDescriptor> ns = descriptors.get(namespace);
+        if (ns == null) {
+            return List.of();
+        }
+        synchronized (ns) {
+            return List.copyOf(ns.values());
+        }
+    }
+
+    /** 已注册描述符的命名空间（字典序；供 /meta 枚举，未注册描述符的不暴露）。 */
+    public List<String> describedNamespaces() {
+        return descriptors.keySet().stream().sorted().toList();
     }
 
     /** 解析值：用户覆盖 > 默认。 */
