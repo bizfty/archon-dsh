@@ -1,6 +1,7 @@
 package com.bizfty.anchon.dsh.api;
 
 import com.bizfty.anchon.dsh.agent.AgentCancelledException;
+import com.bizfty.anchon.dsh.settings.SettingsConflictException;
 import com.bizfty.anchon.dsh.agent.AgentLoopException;
 import com.bizfty.anchon.dsh.llm.LlmAuthException;
 import com.bizfty.anchon.dsh.session.SessionService;
@@ -43,6 +44,19 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Map<String, Object>> loopError(AgentLoopException e) {
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(Map.of("error", "agent_loop", "message", e.getMessage()));
+    }
+
+    /** 设置 CAS 冲突：expectedRevision 过期 → 409 SETTINGS_CONFLICT（含 expected/actual 供前端刷新重载）。 */
+    @ExceptionHandler(SettingsConflictException.class)
+    public ResponseEntity<Map<String, Object>> settingsConflict(SettingsConflictException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(Map.of(
+                        "code", SettingsConflictException.CODE,
+                        "namespace", e.getNamespace(),
+                        "expected", e.getExpected(),
+                        "actual", e.getActual(),
+                        "message", e.getMessage()
+                ));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
