@@ -1,10 +1,10 @@
 <script setup lang="ts">
-// SchemaField.vue — 递归 schema 字段编辑器（P2）。
-// 叶子按 type 渲染 EP 控件（boolean→switch / number·integer→input-number / enum→select / 其余→input）；
-// object→折叠分组内递归 children；array→行式增删（items 标量行内控件 / items object 行卡片内嵌递归）；
-// visibleWhen→同层兄弟键值深等时才显示（隐藏 ≠ 删除，值保留在草稿/提交中）。
-// 值读写均作用于 layer（reactive 树），不改变 PUT 逐键契约。
-import { computed } from 'vue';
+// SchemaField.vue — 递归 schema 字段编辑器（P2 递归渲染 + P3 官方语义前端）。
+// 叶子按 type 渲染 EP 控件；object→折叠分组内递归 children；array→行式增删；
+// visibleWhen→同层兄弟键值深等才显示（隐藏 ≠ 删除）；
+// secret 叶子→write-only（不读值：输入/覆盖/清除经 emit 上抛，由 SchemaForm 以 path op 提交）。
+// path = 到本字段的完整路径（自命名空间值根，含自身 key），供 secret sidecar 定位。
+import { computed, ref } from 'vue';
 import type { SettingDescriptor } from '../api';
 import { defaultValue, deepEquals, objectDefault } from '../schemaDefaults';
 
@@ -12,6 +12,14 @@ const props = defineProps<{
   field: SettingDescriptor;
   /** 当前对象层：field.key 在此读写。 */
   layer: Record<string, unknown>;
+  /** 到本字段的完整路径（含 field.key）。 */
+  path: string[];
+  /** 查 view.secrets：该路径当前是否持值（已设置）。 */
+  secretSet: (path: string[]) => boolean;
+}>();
+
+const emit = defineEmits<{
+  (e: 'secret', path: string[], value: unknown | null): void;
 }>();
 
 const isObject = computed(() => props.field.type === 'object');
@@ -25,13 +33,31 @@ const visible = computed(() => {
   return !vw || deepEquals(props.layer?.[vw.key], vw.equals);
 });
 
-// ---- 叶子 v-model（值即 layer[field.key]）----
+/** 普通叶子 v-model（值即 layer[field.key]）。 */
 const leafModel = computed({
   get: () => props.layer[props.field.key],
   set: (v: unknown) => {
     props.layer[props.field.key] = v;
   },
 });
+
+// ---- secret 叶子（write-only）----
+const secretInput = ref('');
+const secretNow = computed(() => props.secretSet(props.path));
+
+function saveSecret(): void {
+  if (!secretInput.value) return;
+  emit('secret', props.path, secretInput.value);
+  secretInput.value = '';
+}
+function clearSecret(): void {
+  emit('secret', props.path, null);
+}
+
+/** 子递归层事件转发（多参事件经 handler 收敛）。 */
+function onChildSecret(childPath: string[], value: unknown | null): void {
+  emit('secret', childPath, value);
+}
 
 // ---- object：确保值对象存在（缺省建 children 默认）并返回，幂等 ----
 function ensureObjectLayer(): Record<string, unknown> {
@@ -67,6 +93,9 @@ function removeRow(i: number): void {
 function rowObject(row: unknown): Record<string, unknown> {
   return row && typeof row === 'object' && !Array.isArray(row) ? (row as Record<string, unknown>) : {};
 }
+function childPath(child: SettingDescriptor, index?: number): string[] {
+  return index === undefined ? [...props.path, child.key] : [...props.path, String(index), child.key];
+}
 </script>
 
 <template>
@@ -84,6 +113,9 @@ function rowObject(row: unknown): Record<string, unknown> {
             :key="child.key"
             :field="child"
             :layer="ensureObjectLayer()"
+            :path="childPath(child)"
+            :secret-set="secretSet"
+            @secret="onChildSecret"
           />
         </div>
       </el-collapse-item>
@@ -104,6 +136,9 @@ function rowObject(row: unknown): Record<string, unknown> {
               :key="c.key"
               :field="c"
               :layer="rowObject(row)"
+              :path="childPath(c, i)"
+              :secret-set="secretSet"
+              @secret="onChildSecret"
             />
           </div>
         </template>
@@ -149,7 +184,42 @@ function rowObject(row: unknown): Record<string, unknown> {
       <div v-if="arr().length === 0" class="sf-array-empty">（空列表 — 点“添加”新增一项）</div>
     </div>
 
-    <!-- 叶子：行式 meta + 控件 -->
+    <!-- secret 叶子：write-only（值不读回） -->
+    <div v-else-if="field.secret" class="sf-field sf-row">
+      <div class="sf-meta">
+        <label class="sf-label" :title="field.description ?? ''">{{ field.label ?? field.key }}</label>
+        <span v-if="field.description" class="sf-desc">{{ field.description }}</span>
+        <span class="sf-secret-tag" :class="secretNow ? 'sf-secret-set' : 'sf-secret-empty'">
+          {{ secretNow ? '已设置（值不回显）' : '未设置' }}
+        </span>
+      </div>
+      <div class="sf-secret-ctl">
+        <el-input
+          v-model="secretInput"
+          type="password"
+          show-password
+          size="small"
+          :placeholder="secretNow ? '输入新值可覆盖' : '输入要保存的值'"
+        />
+        <div class="sf-secret-actions">
+          <el-button size="small" type="primary" text :disabled="!secretInput" @click="saveSecret">
+            保存
+          </el-button>
+          <el-button
+            v-if="secretNow"
+            size="small"
+            text
+            type="danger"
+            title="移除该值（回默认/未设置）"
+            @click="clearSecret"
+          >
+            清除
+          </el-button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 普通叶子：行式 meta + 控件 -->
     <div v-else class="sf-field sf-row">
       <div class="sf-meta">
         <label class="sf-label" :title="field.description ?? ''">{{ field.label ?? field.key }}</label>
@@ -188,6 +258,13 @@ function rowObject(row: unknown): Record<string, unknown> {
 .sf-label { font-size: 13px; font-weight: 600; color: var(--dsh-fg-0); }
 .sf-desc { font-size: 11.5px; color: var(--dsh-fg-2); line-height: 1.5; }
 .sf-control { width: 220px; flex-shrink: 0; }
+
+/* secret write-only */
+.sf-secret-tag { font-size: 11px; line-height: 1.4; }
+.sf-secret-set { color: var(--dsh-warn, #e6a23c); }
+.sf-secret-empty { color: var(--dsh-fg-3, #999); }
+.sf-secret-ctl { width: 300px; flex-shrink: 0; display: flex; flex-direction: column; gap: 4px; }
+.sf-secret-actions { display: flex; gap: 6px; justify-content: flex-end; }
 
 /* object 分组 */
 .sf-object { border: 1px solid var(--dsh-border); border-radius: 8px; }

@@ -1060,13 +1060,37 @@ export interface SettingDescriptor {
   items?: SettingDescriptor | null;
   /** 联动显隐（同层兄弟键等值）。 */
   visibleWhen?: SettingVisibleWhen | null;
+  /** true=该字段值视为 secret：wire 回传剥离、渲染 write-only（不读值只写）。 */
+  secret?: boolean | null;
 }
 
-/** 设置命名空间（描述符 + 当前值合并视图）。 */
-export interface SettingsNamespace {
+/** P3：secret 槽位（redacted view sidecar）——path 自值根寻址；set = 当前是否持有值。 */
+export interface SettingsSecret {
+  path: string[];
+  set: boolean;
+}
+
+/** P3：设置命名空间 redacted view（GET /api/settings/meta 单条）。 */
+export interface SettingsNamespaceView {
   namespace: string;
   settings: SettingDescriptor[];
-  values: Record<string, unknown>;
+  /** redacted resolved 值（schema 默认 + 用户覆盖；secret 已剥离）。 */
+  value: Record<string, unknown>;
+  /** redacted 用户覆盖层；键在场 = user-overridden（presence）。 */
+  user?: Record<string, unknown> | null;
+  /** 用户层修订号（写回 expectedRevision，冲突 409）。 */
+  revision: number;
+  /** 每个 schema 声明 secret 槽的持有状态。 */
+  secrets: SettingsSecret[];
+  /** 生效时机 live|restart。 */
+  applies: string;
+}
+
+/** 一条 path 寻址编辑（POST /api/settings/{ns}/ops）。 */
+export interface SettingPathOp {
+  op: 'set' | 'unset';
+  path: string[];
+  value?: unknown;
 }
 
 /** 工具元数据列表（标题/摘要键/参数 schema 从后端下发，前端不再硬编码）。 */
@@ -1076,16 +1100,41 @@ export async function listToolMeta(): Promise<ToolMeta[]> {
 }
 
 /** 设置描述符 + 当前值（动态表单数据源；仅已注册描述符的命名空间）。 */
-export async function fetchSettingsMeta(): Promise<SettingsNamespace[]> {
+export async function fetchSettingsMeta(): Promise<SettingsNamespaceView[]> {
   const resp = await fetch(`${BASE}/api/settings/meta`, { headers: headers(false) });
   return parse<SettingsNamespace[]>(resp);
 }
 
-/** 保存设置覆盖值（PUT /api/settings/{namespace}/{key}，body {value}）。 */
-export async function putSetting(namespace: string, key: string, value: unknown): Promise<void> {
-  const resp = await fetch(
-    `${BASE}/api/settings/${encodeURIComponent(namespace)}/${encodeURIComponent(key)}`,
-    { method: 'PUT', headers: headers(), body: JSON.stringify({ value }) },
-  );
-  await parse<{ set: boolean }>(resp);
+/**
+ * P3：path 级写（POST /api/settings/{namespace}/ops，body {ops, expectedRevision?}）。
+ * 409 冲突时抛带 conflict=true 的错误（detail 含 expected/actual）。
+ */
+export async function putSettingOps(
+  namespace: string,
+  ops: SettingPathOp[],
+  expectedRevision: number,
+): Promise<{ revision: number }> {
+  const resp = await fetch(`${BASE}/api/settings/${encodeURIComponent(namespace)}/ops`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify({ ops, expectedRevision }),
+  });
+  if (!resp.ok) {
+    let detail: unknown = null;
+    try {
+      detail = await resp.json();
+    } catch {
+      /* ignore */
+    }
+    if (resp.status === 409) {
+      const err = new Error(`设置已被他人修改（冲突），已刷新最新设置。`) as Error & { conflict?: boolean; detail?: unknown };
+      err.conflict = true;
+      err.detail = detail;
+      throw err;
+    }
+    throw new Error(typeof detail === 'object' && detail && 'message' in detail
+      ? String((detail as { message?: unknown }).message ?? '写入失败')
+      : `写入失败（${resp.status}）`);
+  }
+  return parse<{ revision: number }>(resp);
 }
