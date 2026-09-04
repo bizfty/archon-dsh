@@ -2,6 +2,7 @@ package com.bizfty.anchon.dsh.settings;
 
 import com.bizfty.anchon.dsh.storage.StorageService;
 import org.springframework.stereotype.Service;
+import tools.jackson.databind.ObjectMapper;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -14,16 +15,22 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>
  * 覆盖值经 {@link StorageService} 持久化（命名空间前缀 settings.）；
  * 默认值由 registerDefaults 注册（模块装配期）。
+ * <p>
+ * P2：嵌套值（Map/List，来自 object/array 设置项）以 JSON 字符串持久化；
+ * 标量沿用 {@link String#valueOf}（存量存储文本零迁移）。读取时统一反序列化
+ * 为结构化对象，get/all/meta 链路自动获得 Map/List 值。
  */
 @Service
 public class SettingsService {
 
     private final StorageService storage;
+    private final ObjectMapper mapper;
     private final Map<String, Map<String, Object>> defaults = new ConcurrentHashMap<>();
     private final Map<String, Map<String, SettingDescriptor>> descriptors = new ConcurrentHashMap<>();
 
-    public SettingsService(StorageService storage) {
+    public SettingsService(StorageService storage, ObjectMapper mapper) {
         this.storage = storage;
+        this.mapper = mapper;
     }
 
     /** 注册命名空间默认值（schema 层）。 */
@@ -85,7 +92,7 @@ public class SettingsService {
 
     /** 设置覆盖值（持久化）。 */
     public void set(String namespace, String key, Object value) {
-        storage.put("settings." + namespace, key, String.valueOf(value));
+        storage.put("settings." + namespace, key, encode(value));
     }
 
     /** 合并视图（默认 + 覆盖）。 */
@@ -98,7 +105,28 @@ public class SettingsService {
         return merged;
     }
 
+    /** 持久化编码：嵌套对象/数组 → JSON 字符串；标量沿用 String.valueOf（存量标量零变化）。 */
+    private String encode(Object value) {
+        if (value instanceof Map || value instanceof List) {
+            return mapper.writeValueAsString(value);
+        }
+        return String.valueOf(value);
+    }
+
+    /** 覆盖值解码：JSON 文本（去除首尾空白后以 { 或 [ 开头）反序列化为 Map/List/标量混合；
+     * 解析失败回落原文本（存量脏数据兜底，如误存的 "{a=1}"）。 */
     private Object parse(String text) {
+        if (text == null) {
+            return null;
+        }
+        String trimmed = text.trim();
+        if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+            try {
+                return mapper.readValue(trimmed, Object.class);
+            } catch (Exception ignored) {
+                // 非合法 JSON → 回落原文本
+            }
+        }
         if ("true".equalsIgnoreCase(text)) {
             return true;
         }

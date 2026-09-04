@@ -17,6 +17,16 @@
             <groupId>com.bizfty.anchon</groupId>
             <artifactId>dsh-storage</artifactId>
         </dependency>
+        <!-- 嵌套值 JSON 编解码：Jackson 3 databind（Boot 4 BOM 管版本；与 dsh-github 同惯例） -->
+        <dependency>
+            <groupId>tools.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+        <!-- 注解制品：JsonInclude 等（Jackson 3 mapper 兼容读取 com.fasterxml 注解，同 dsh-api DTO 惯例） -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-annotations</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
