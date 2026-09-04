@@ -27,6 +27,11 @@
         </dependency>
         <dependency>
             <groupId>com.bizfty.anchon</groupId>
+            <artifactId>dsh-host-bridge</artifactId>
+            <version>0.0.1-SNAPSHOT</version>
+        </dependency>
+        <dependency>
+            <groupId>com.bizfty.anchon</groupId>
             <artifactId>dsh-feedback</artifactId>
         </dependency>
         <dependency>

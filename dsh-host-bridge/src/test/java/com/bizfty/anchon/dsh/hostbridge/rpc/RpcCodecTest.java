@@ -43,9 +43,11 @@ class RpcCodecTest {
 
     @Test
     void rejectsInvalidMethodSegment() {
-        // '/' 不在 endpoint 段字符集 [A-Za-z0-9_$.-]+
+        // endpoint = ns/method：每段 [A-Za-z0-9_$.-]+；空段/坏字符仍拒绝
         assertThrows(RpcCodec.RpcEnvelopeException.class, () ->
-                RpcCodec.parseRequest(request("a", "settings/view", "{}")));
+                RpcCodec.parseRequest(request("a", "settings//view", "{}")));
+        assertThrows(RpcCodec.RpcEnvelopeException.class, () ->
+                RpcCodec.parseRequest(request("a", "settings/vi ew", "{}")));
     }
 
     @Test

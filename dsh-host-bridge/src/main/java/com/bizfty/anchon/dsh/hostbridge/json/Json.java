@@ -37,6 +37,42 @@ public final class Json {
         return MAPPER.createObjectNode();
     }
 
+
+    /** 把任意 Java 值（String/Number/Boolean/Map/List/JsonNode/null）转为 JsonNode。 */
+    public static JsonNode value(Object value) {
+        if (value == null) return MAPPER.getNodeFactory().nullNode();
+        if (value instanceof JsonNode node) return node;
+        try {
+            return MAPPER.valueToTree(value);
+        } catch (Exception e) {
+            throw new IllegalStateException("hostbridge: 值转 JSON 失败: " + value, e);
+        }
+    }
+
+    /** 构造数组节点（元素逐个经 {@link #value}）。 */
+    public static tools.jackson.databind.node.ArrayNode array(Object... items) {
+        tools.jackson.databind.node.ArrayNode array = MAPPER.createArrayNode();
+        for (Object item : items) array.add(value(item));
+        return array;
+    }
+
+    /** 把 JsonNode 转为 Java 值（object→LinkedHashMap、array→ArrayList、scalar→对应类型）。 */
+    public static Object toJava(JsonNode node) {
+        if (node == null || node.isNull()) return null;
+        if (node.isTextual()) return node.asText();
+        if (node.isBoolean()) return node.asBoolean();
+        if (node.isIntegralNumber()) return node.asLong();
+        if (node.isFloatingPointNumber()) return node.asDouble();
+        if (node.isArray()) {
+            java.util.List<Object> list = new java.util.ArrayList<>();
+            for (JsonNode child : node) list.add(toJava(child));
+            return list;
+        }
+        java.util.Map<String, Object> map = new java.util.LinkedHashMap<>();
+        for (var entry : node.properties()) map.put(entry.getKey(), toJava(entry.getValue()));
+        return map;
+    }
+
     /** 从文本新建对象节点（语义校验后使用）；非法返回 null。 */
     public static ObjectNode parseObject(String text) {
         JsonNode node = parse(text);

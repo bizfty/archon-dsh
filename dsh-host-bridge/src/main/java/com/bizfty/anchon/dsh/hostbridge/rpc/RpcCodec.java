@@ -20,7 +20,7 @@ public final class RpcCodec {
     private static final Set<String> OK_KEYS = Set.of("ok", "value");
     private static final Set<String> ERROR_KEYS = Set.of("ok", "error");
     private static final Set<String> FAILURE_KEYS = Set.of("code", "message", "details");
-    private static final Pattern ENDPOINT_PATTERN = Pattern.compile("[A-Za-z0-9_$.-]+");
+    private static final Pattern ENDPOINT_PATTERN = Pattern.compile("[A-Za-z0-9_$.-]+(/[A-Za-z0-9_$.-]+)*");
     private static final Pattern RPC_ID_PATTERN = Pattern.compile("^[\\x21-\\x7E]{1,128}$");
 
     private RpcCodec() {
