@@ -24,6 +24,7 @@ public class AgentSettingsConfig {
         defaults.put("max-steps", properties.maxSteps());
         defaults.put("max-parallel-tool-calls", properties.maxParallelToolCalls());
         settingsService.registerDefaults("agent", defaults);
+        settingsService.registerApplies("agent", "live");
 
         settingsService.registerDescriptor("agent", SettingDescriptor.leaf(
                 "temperature", "number", "温度", "模型采样温度（dsh.agent.temperature，settings.agent.temperature 覆盖）",
