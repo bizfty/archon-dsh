@@ -198,3 +198,32 @@ public record SettingDescriptor(
 6. ✅ 前端构建 gate：vite build 通过（现状唯一 gate，无新增 devDep）
 
 git 提交：见上（后端 dsh-tool/dsh-settings/dsh-agent/dsh-api 与前端 dsh-web 分主题提交）。
+
+## 7. P2 表达力扩展落地（2026-09-04，plan-bcf55baf completed）
+
+P2 将扁平 6 类型描述符升级为 **schema 树**（object/array + 最小联动），后端事实源与 wire 端点不变、
+存量标量存储零迁移，对照官方 settings/schema-form 语义做诚实范围差标注（path CAS/覆盖标记/redact 为 P3）：
+
+- **P2-1 树化**：`SettingDescriptor` record 尾加 `children`（object 子描述符）/`items`（array 元素）/`visibleWhen`
+  （同层兄弟键等值显隐），`@JsonInclude(NON_NULL)` 序列化省略 null；type 常量 `Types`；静态工厂
+  `leaf/choice/number/group/list/withVisible`（canonical 12 参仅内部，存量调用点一次迁移编译期找全）；
+  独立 `VisibleWhen(key, equals)` record；dsh-settings pom 加 `tools.jackson.core:jackson-databind` +
+  `com.fasterxml.jackson.core:jackson-annotations`（Boot 4.1 BOM 管版本，Jackson 3 mapper 兼容读 com.fasterxml 注解，
+  同 dsh-github/dsh-api DTO 惯例）。
+- **P2-2 JSON 持久化**：`SettingsService` 注入 `ObjectMapper`；`set()` Map/List → JSON 串（标量仍
+  `String.valueOf`，存量文本零迁移）；`parse()` 以 `{`/`[` 开头 → 反序列化 Map/List，解析失败回落原文本兜底；
+  `get/all/meta` 链路自动获得结构化值。
+- **P2-3 wire 验证**：`GET /api/settings/meta` 描述符递归下发（children/items/visibleWhen），values 嵌套 JSON；
+  `PUT /{ns}/{key}` body 本就收任意 JSON → 端点 URL 与逐键语义不变；`SettingsMetaControllerTest` 覆盖嵌套
+  meta 形状 + PUT 嵌套 → GET 结构化 JSON。
+- **P2-4 前端递归渲染**：`api.ts` `SettingType` union + `SettingDescriptor` 递归 interface；新
+  `SchemaField.vue` 递归字段编辑器（叶子四控件原样迁移 / object→el-collapse 折叠分组递归 / array→行式增删，
+  items 标量行内控件、items object 行卡片内嵌 / visibleWhen 深等值 v-if 隐藏不删值）；`SchemaForm.vue` 容器化
+  （顶层每键渲染 SchemaField，**保存仍逐顶层键 PUT 整键嵌套 JSON**）；`schemaDefaults.ts` 深默认值
+  （structuredClone 防共享）+ 深等值工具。
+- **P2-5 收口**：`mvn verify` 全绿不回退（531 baseline + 11 新增 = **542 tests / 0 fail**）；`vite build` 通过；
+  grep 单源校验零残留（SchemaForm 0 控件硬编码、无 TOOL_TITLES/SUMMARY_KEYS）；docs 三处回写 + 分阶段提交
+  （dsh-settings → dsh-agent → dsh-api → dsh-web → docs）。
+
+**范围差（诚实标注，另开 P3 设计）**：官方 schema-form 的 path 级 set/unset + revision CAS + 覆盖标记 +
+secret redact 未做——本 P2 仍是"逐顶层键整值 PUT、覆盖>默认"语义，嵌套仅作为 JSON 结构存取与渲染。

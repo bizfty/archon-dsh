@@ -4,7 +4,9 @@
 > 配套：[design-upstream-replication.md](design-upstream-replication.md)（后端三支柱）、
 > [IMPLEMENTATION_DIFF.md](IMPLEMENTATION_DIFF.md) §9。
 > 落地：**内核②（schema 单源消费）已按路径 C+L2 全量落地（2026-09-04，M10）** →
-> [design-schema-ui.md](design-schema-ui.md)；L1（事件投影 store）与 L3（组件插槽化）未动。
+> [design-schema-ui.md](design-schema-ui.md)；**P2 表达力扩展（descriptor object/array/联动 + SchemaField
+> 递归渲染）已落地（2026-09-04）** → [design-settings-nested-schema.md](design-settings-nested-schema.md)；
+> L1（事件投影 store）与 L3（组件插槽化）未动。
 
 ## 1. 上游前端到底是什么（先纠偏）
 
@@ -75,3 +77,8 @@ L1+L2（独立闭环），再视后端支柱节奏推进。
 
 （2026-09-03 定稿：基于文件级核实；2026-09-04 用户圈定 **路径 C + L2 全量（内核②全量）**，
 落地见 [design-schema-ui.md](design-schema-ui.md) §6，M10 ✅）
+
+（2026-09-04 P2：设置描述符嵌套 schema + 递归渲染落地——扁平 6 类型 → schema 树（object children / array items /
+同层联动 visibleWhen），后端 SettingDescriptor 树化 + 嵌套 JSON 持久化（wire 端点与逐键 PUT 不变），前端
+SchemaField.vue 递归渲染 + SchemaForm.vue 容器化。落地与范围差见 [design-settings-nested-schema.md](design-settings-nested-schema.md)；
+P3（path CAS / 覆盖标记 / redact）另开设计。）
