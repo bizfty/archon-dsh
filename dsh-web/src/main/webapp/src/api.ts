@@ -1027,10 +1027,26 @@ export interface ToolMeta {
   timeoutMs: number;
 }
 
-/** 设置项描述符（动态表单 schema 单源）。 */
+/** 设置项描述符类型（wire 字符串；object→children 递归、array→items）。 */
+export type SettingType =
+  | 'string'
+  | 'number'
+  | 'integer'
+  | 'boolean'
+  | 'enum'
+  | 'object'
+  | 'array';
+
+/** 联动显隐条件：同层兄弟键值深等于 equals 时本字段可见（隐藏 ≠ 删除）。 */
+export interface SettingVisibleWhen {
+  key: string;
+  equals: unknown;
+}
+
+/** 设置项描述符（动态表单 schema 单源；object→children、array→items、任层可带 visibleWhen）。 */
 export interface SettingDescriptor {
   key: string;
-  type: string;
+  type: SettingType;
   label: string | null;
   description: string | null;
   defaultValue: unknown;
@@ -1038,6 +1054,12 @@ export interface SettingDescriptor {
   min: number | null;
   max: number | null;
   step: number | null;
+  /** type=object 时的子描述符（注册顺序保序，递归）。 */
+  children?: SettingDescriptor[];
+  /** type=array 时的元素描述符（标量叶子或 object）。 */
+  items?: SettingDescriptor | null;
+  /** 联动显隐（同层兄弟键等值）。 */
+  visibleWhen?: SettingVisibleWhen | null;
 }
 
 /** 设置命名空间（描述符 + 当前值合并视图）。 */

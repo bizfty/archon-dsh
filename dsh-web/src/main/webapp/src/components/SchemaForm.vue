@@ -1,11 +1,13 @@
 <script setup lang="ts">
-// SchemaForm.vue — 通用 schema 驱动表单（内核②：一套 schema 多消费）。
-// 由后端 SettingDescriptor（type/label/description/options/min/max/step/defaultValue）
-// 生成动态表单：boolean → 开关、number/integer → 数字输入（步进/边界）、enum → 下拉、
-// 其余 → 文本输入。保存逐键 PUT /api/settings/{namespace}/{key}。
+// SchemaForm.vue — schema 驱动表单容器（内核②/P2：一套 schema 多消费）。
+// 数据源：后端 SettingDescriptor（叶子 + object children 递归 + array items + visibleWhen 联动）。
+// 顶层每键渲染递归 SchemaField；草稿为 reactive 树（现值优先，缺省用 schema 默认值递归构造）；
+// 保存仍逐顶层键 PUT /api/settings/{namespace}/{key}（整键嵌套 JSON，wire 契约不变）。
 import { reactive, ref, watch } from 'vue';
 import { putSetting, type SettingDescriptor } from '../api';
+import { defaultValue } from '../schemaDefaults';
 import { pushNotice } from '../store';
+import SchemaField from './SchemaField.vue';
 
 const props = defineProps<{
   namespace: string;
@@ -15,20 +17,14 @@ const props = defineProps<{
 
 const emit = defineEmits<{ (e: 'changed', namespace: string, key: string, value: unknown): void }>();
 
-/** 本地草稿：以当前值初始化，未覆盖键用描述符默认值。 */
-const draft = reactive<Record<string, any>>({});
+/** 本地草稿树：以当前值初始化，未覆盖键用描述符默认值（含嵌套递归）。 */
+const draft = reactive<Record<string, unknown>>({});
 
 function syncDraft(): void {
   for (const s of props.settings) {
-    draft[s.key] = props.values[s.key] ?? s.defaultValue ?? defaultFor(s);
+    const cur = props.values[s.key];
+    draft[s.key] = cur !== undefined && cur !== null ? cur : defaultValue(s);
   }
-}
-
-function defaultFor(s: SettingDescriptor): unknown {
-  if (s.type === 'boolean') return false;
-  if (s.type === 'number') return 0;
-  if (s.type === 'integer') return 0;
-  return '';
 }
 
 watch(() => [props.namespace, props.values, props.settings], syncDraft, { immediate: true, deep: true });
@@ -52,37 +48,16 @@ async function saveAll(): Promise<void> {
     saving.value = false;
   }
 }
-
 </script>
 
 <template>
   <div class="schema-form">
-    <div v-for="s in settings" :key="s.key" class="sf-row">
-      <div class="sf-meta">
-        <label class="sf-label" :title="s.description ?? ''">{{ s.label ?? s.key }}</label>
-        <span v-if="s.description" class="sf-desc">{{ s.description }}</span>
-      </div>
-      <div class="sf-control">
-        <el-switch
-          v-if="s.type === 'boolean'"
-          v-model="draft[s.key]"
-        />
-        <el-input-number
-          v-else-if="s.type === 'number' || s.type === 'integer'"
-          v-model="draft[s.key]"
-          :min="s.min ?? undefined"
-          :max="s.max ?? undefined"
-          :step="s.step ?? (s.type === 'integer' ? 1 : 0.1)"
-          :precision="s.type === 'integer' ? 0 : undefined"
-          size="small"
-          controls-position="right"
-        />
-        <el-select v-else-if="s.type === 'enum' && s.options && s.options.length > 0" v-model="draft[s.key]" size="small" style="width: 100%">
-          <el-option v-for="o in s.options" :key="o" :value="o" :label="o" />
-        </el-select>
-        <el-input v-else v-model="draft[s.key]" size="small" />
-      </div>
-    </div>
+    <SchemaField
+      v-for="s in settings"
+      :key="s.key"
+      :field="s"
+      :layer="draft"
+    />
     <div v-if="saveError" class="sf-error">保存失败：{{ saveError }}</div>
     <div class="sf-actions">
       <el-button size="small" type="primary" :loading="saving" @click="saveAll">保存更改</el-button>
@@ -92,11 +67,6 @@ async function saveAll(): Promise<void> {
 
 <style scoped>
 .schema-form { display: flex; flex-direction: column; gap: 12px; }
-.sf-row { display: flex; align-items: flex-start; gap: 16px; }
-.sf-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.sf-label { font-size: 13px; font-weight: 600; color: var(--dsh-fg-0); }
-.sf-desc { font-size: 11.5px; color: var(--dsh-fg-2); line-height: 1.5; }
-.sf-control { width: 220px; flex-shrink: 0; }
 .sf-actions { display: flex; align-items: center; gap: 10px; padding-top: 4px; }
 .sf-error { color: var(--dsh-danger, #f56c6c); font-size: 12px; }
 </style>
