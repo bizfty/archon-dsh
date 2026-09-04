@@ -10,8 +10,9 @@ import java.util.Objects;
  *
  * <p>叶子（string/number/integer/boolean/enum）用 {@link #leaf}；嵌套对象用 {@link #group}
  * （children 递归保序）；数组用 {@link #list}（items 为元素描述符，元素可为标量或 object）；
- * 任一层可用 {@link #withVisible} 附加联动显隐。type 常量见 {@link Types}，wire 上仍是字符串
- * （不引枚举，避免大改与 JSON 序列化特例）。
+ * 任一层可用 {@link #withVisible} 附加联动显隐；叶子可经 {@link #withSecret} 标记 secret
+ * （wire 边界剥离值 + 前端 write-only，对应官方 schema role('secret')）。
+ * type 常量见 {@link Types}，wire 上仍是字符串（不引枚举，避免大改与 JSON 序列化特例）。
  *
  * @param key          设置键（与 defaults/overrides 同 key）
  * @param type         string | number | integer | boolean | enum | object | array（见 Types）
@@ -25,6 +26,7 @@ import java.util.Objects;
  * @param children     type=object 时的子描述符（注册顺序保序，递归）
  * @param items        type=array 时的元素描述符（元素可为标量或 object）
  * @param visibleWhen  联动：同层兄弟键值深等于 equals 时本字段可见（可空）
+ * @param secret       true=该字段值视为 secret（wire redact + 前端 write-only；可空）
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record SettingDescriptor(
@@ -39,7 +41,8 @@ public record SettingDescriptor(
         Double step,
         List<SettingDescriptor> children,
         SettingDescriptor items,
-        VisibleWhen visibleWhen) {
+        VisibleWhen visibleWhen,
+        Boolean secret) {
 
     /** type 常量（wire 值即这些字符串；不引枚举以兼容存量序列化/反序列化）。 */
     public static final class Types {
@@ -62,7 +65,7 @@ public record SettingDescriptor(
                                          Object defaultValue, List<String> options,
                                          Double min, Double max, Double step) {
         return new SettingDescriptor(key, type, label, description, defaultValue, options, min, max, step,
-                null, null, null);
+                null, null, null, null);
     }
 
     /** 常用叶子：无选项/边界（options/min/max/step 全 null）。 */
@@ -87,14 +90,14 @@ public record SettingDescriptor(
     public static SettingDescriptor group(String key, String label, String description,
                                           SettingDescriptor... children) {
         return new SettingDescriptor(key, Types.OBJECT, label, description, null, null, null, null, null,
-                List.of(children), null, null);
+                List.of(children), null, null, null);
     }
 
     /** array 列表：items 为元素描述符（标量叶子或 object 均可），type=array。 */
     public static SettingDescriptor list(String key, String label, String description,
                                          SettingDescriptor items) {
         return new SettingDescriptor(key, Types.ARRAY, label, description, null, null, null, null, null,
-                null, items, null);
+                null, items, null, null);
     }
 
     /** 给任意节点附加联动显隐（返回新实例，原实例不变）。 */
@@ -103,6 +106,17 @@ public record SettingDescriptor(
         return new SettingDescriptor(descriptor.key(), descriptor.type(), descriptor.label(),
                 descriptor.description(), descriptor.defaultValue(), descriptor.options(),
                 descriptor.min(), descriptor.max(), descriptor.step(),
-                descriptor.children(), descriptor.items(), new VisibleWhen(whenKey, equals));
+                descriptor.children(), descriptor.items(), new VisibleWhen(whenKey, equals),
+                descriptor.secret());
+    }
+
+    /** 把节点标记为 secret（返回新实例，原实例不变）：wire 剥离值 + 前端 write-only。 */
+    public static SettingDescriptor withSecret(SettingDescriptor descriptor) {
+        Objects.requireNonNull(descriptor, "descriptor");
+        return new SettingDescriptor(descriptor.key(), descriptor.type(), descriptor.label(),
+                descriptor.description(), descriptor.defaultValue(), descriptor.options(),
+                descriptor.min(), descriptor.max(), descriptor.step(),
+                descriptor.children(), descriptor.items(), descriptor.visibleWhen(),
+                Boolean.TRUE);
     }
 }
