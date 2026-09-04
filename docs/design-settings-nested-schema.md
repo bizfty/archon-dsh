@@ -70,7 +70,7 @@ public record SettingDescriptor(
 
 ### D2 嵌套值 JSON 持久化（SettingsService.parse/set 升级）
 
-- `dsh-settings/pom.xml` 加 `com.fasterxml.jackson.core:jackson-databind`（compile，版本随父 BOM）。
+- `dsh-settings/pom.xml` 加 `tools.jackson.core:jackson-databind`（Jackson 3 databind，Boot 4.1 BOM 管版本；与 dsh-github 同惯例）+ `com.fasterxml.jackson.core:jackson-annotations`（`@JsonInclude` 等注解制品，mapper 兼容读取，同 dsh-api DTO 惯例）。
 - `SettingsService` 注入/持有 `ObjectMapper`：
   - `set(ns,key,value)`：`value instanceof Map || value instanceof List` → `writeValueAsString(value)` 存储；**否则仍 `String.valueOf(value)`**（存量标量零变化，存量存储文本无需迁移）。
   - `parse(text)`：trim 后以 `{` 或 `[` 开头 → `readValue(text, Object.class)`（解为 Map/List/标量混合，默认用 `LinkedHashMap` 保序）；否则走现有 bool/int/double/string 分支。
