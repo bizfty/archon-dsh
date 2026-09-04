@@ -25,13 +25,13 @@ public class AgentSettingsConfig {
         defaults.put("max-parallel-tool-calls", properties.maxParallelToolCalls());
         settingsService.registerDefaults("agent", defaults);
 
-        settingsService.registerDescriptor("agent", new SettingDescriptor(
+        settingsService.registerDescriptor("agent", SettingDescriptor.leaf(
                 "temperature", "number", "温度", "模型采样温度（dsh.agent.temperature，settings.agent.temperature 覆盖）",
                 properties.temperature(), null, 0.0, 2.0, 0.1));
-        settingsService.registerDescriptor("agent", new SettingDescriptor(
+        settingsService.registerDescriptor("agent", SettingDescriptor.leaf(
                 "max-steps", "integer", "最大步数", "单 turn 防失控步数上限（dsh.agent.max-steps）",
                 properties.maxSteps(), null, 1.0, 10000.0, 1.0));
-        settingsService.registerDescriptor("agent", new SettingDescriptor(
+        settingsService.registerDescriptor("agent", SettingDescriptor.leaf(
                 "max-parallel-tool-calls", "integer", "并行工具上限", "单次返回中可并发执行的安全工具数上限（dsh.agent.max-parallel-tool-calls）",
                 properties.maxParallelToolCalls(), null, 1.0, 64.0, 1.0));
     }

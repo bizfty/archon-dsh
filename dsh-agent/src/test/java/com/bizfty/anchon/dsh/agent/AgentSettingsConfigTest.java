@@ -4,6 +4,7 @@ import com.bizfty.anchon.dsh.settings.SettingDescriptor;
 import com.bizfty.anchon.dsh.settings.SettingsService;
 import com.bizfty.anchon.dsh.storage.InMemoryStorageBackend;
 import com.bizfty.anchon.dsh.storage.StorageService;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 
@@ -26,7 +27,7 @@ class AgentSettingsConfigTest {
     private SettingsService service() {
         ObjectProvider<com.bizfty.anchon.dsh.storage.StorageBackend> op = mock(ObjectProvider.class);
         when(op.orderedStream()).thenReturn(Stream.of(new InMemoryStorageBackend()));
-        return new SettingsService(new StorageService(op));
+        return new SettingsService(new StorageService(op), JsonMapper.builder().build());
     }
 
     @Test

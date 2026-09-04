@@ -16,6 +16,7 @@ import com.bizfty.anchon.dsh.tool.ToolExecutionPipeline;
 import com.bizfty.anchon.dsh.tool.ToolEventPublisher;
 import com.bizfty.anchon.dsh.tool.ToolRegistry;
 import com.bizfty.anchon.dsh.util.JsonUtils;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
@@ -53,7 +54,7 @@ class AgentLoopSettingsTest {
 
     @Test
     void temperatureOverrideFromSettings() {
-        SettingsService settings = new SettingsService(storageService());
+        SettingsService settings = new SettingsService(storageService(), JsonMapper.builder().build());
         settings.registerDefaults("agent", Map.of("temperature", 0.7));
         settings.set("agent", "temperature", "0.2");
 
