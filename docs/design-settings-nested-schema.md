@@ -133,7 +133,6 @@ public record SettingDescriptor(
 | 前端递归过深/性能 | 设置页规模极小（每 namespace ≤ 数十键，深度 ≤3）；仅浅层联动求值，无引擎 |
 | 范围蔓延（P3 语义被顺手做） | 明确不做 path CAS/覆盖标记/redact；如需另开设计 |
 
-## 6. 落地记录
 ## 6. 落地记录（2026-09-04，plan-bcf55baf completed）
 
 - **p2-1** SettingDescriptor 树化：record 尾加 `children/items/visibleWhen` + `Types` 常量 + 静态工厂
