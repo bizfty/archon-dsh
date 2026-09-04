@@ -82,3 +82,9 @@ L1+L2（独立闭环），再视后端支柱节奏推进。
 同层联动 visibleWhen），后端 SettingDescriptor 树化 + 嵌套 JSON 持久化（wire 端点与逐键 PUT 不变），前端
 SchemaField.vue 递归渲染 + SchemaForm.vue 容器化。落地与范围差见 [design-settings-nested-schema.md](design-settings-nested-schema.md)；
 P3（path CAS / 覆盖标记 / redact）另开设计。）
+
+（2026-09-04 P3：设置官方语义落地——user 层单文档 + revision CAS（409 SETTINGS_CONFLICT）、path 级 set/unset
+（POST /{ns}/ops + DELETE reset）、覆盖标记 presence（meta redacted user 层 + 前端「已覆盖」徽标/恢复默认）、
+secret redact（descriptor.secret → wire 剥离 + secrets sidecar + 前端 write-only）。前端保存从逐键 PUT 升级为
+ops 批量提交带 expectedRevision、409 自动重载。落地见 [design-settings-p3-path-cas.md](design-settings-p3-path-cas.md)
+与 [design-schema-ui.md](design-schema-ui.md) §8；官方对照 @deepseek-ai/dsh-settings。）

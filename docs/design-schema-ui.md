@@ -227,3 +227,23 @@ P2 将扁平 6 类型描述符升级为 **schema 树**（object/array + 最小�
 
 **范围差（诚实标注，另开 P3 设计）**：官方 schema-form 的 path 级 set/unset + revision CAS + 覆盖标记 +
 secret redact 未做——本 P2 仍是"逐顶层键整值 PUT、覆盖>默认"语义，嵌套仅作为 JSON 结构存取与渲染。
+
+## 8. P3 官方 settings 语义落地（2026-09-04，plan-70e6a4e3 completed）
+
+P2 范围差（path CAS / 覆盖标记 / redact）本轮全量落地，对照官方 `@deepseek-ai/dsh-settings`（settings/index.ts +
+types.ts + redact.ts）源码语义：
+
+- **user 层单文档 + revision**：每 namespace user 覆盖层从"每键条目"升级为单 JSON 文档（`settings.{ns}.doc`）+
+  单调修订号（`settings.{ns}.rev`）；旧条目 lazy 迁移并入；写面 `mutate(path ops)`/`update`(深合并)/`replace`/`unset`
+  均带 `expectedRevision` CAS——stale 写入抛 `SettingsConflictException`（409 SETTINGS_CONFLICT）。
+- **path 级 set/unset**：`SettingsPathOp{op,path,value}` 对齐官方 applyPathOp（空 path=整文档、set 建中间对象、
+  数组索引段）；设计动机同官方——redacted 视图持有者按路径写，不整文档重提（防静默删 secret）。
+- **覆盖标记 = presence**：meta view 下发 redacted `user` 层，键在场 ⇔ user-overridden；前端「已覆盖」徽标 + 恢复默认（unset）。
+- **secret redact**：`SettingDescriptor.secret` 声明 → wire 边界（meta/get/all）按树剥离 + `secrets[{path,set}]` sidecar
+  （object 属性恒枚举含缺失容器、array 逐项）；前端 secret 字段 write-only（值不回读，只写/清除）。
+- **写校验**：`SettingValidator` 按描述符树强校验写路径（leaf 类型/min-max/enum/string + object/array 递归，
+  未知键宽容、无描述符跳过），对齐官方"write 过 schema"。
+- 红线：AgentLoop 读取零漂移（defaults > user 解析链不变）· mvn verify 571/0 不回退 · vite build ✅ ·
+  wire 无 verbatim secret 明文路径 · 前端保存全走 ops（无逐键 PUT 调用残留）。
+
+落地细节见 [design-settings-p3-path-cas.md](design-settings-p3-path-cas.md)。
