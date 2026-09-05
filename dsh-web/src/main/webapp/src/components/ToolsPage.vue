@@ -9,6 +9,7 @@ import CodeView from './CodeView.vue';
 import FloatingChat from './FloatingChat.vue';
 
 const view = computed(() => String(appState.view));
+
 const chatRef = ref<InstanceType<typeof FloatingChat> | null>(null);
 function goBack(): void { appState.view = 'chat'; }
 
@@ -21,9 +22,9 @@ const TOOL_META: Record<string, { icon: string; title: string; desc: string }> =
   coder:  { icon: '💻', title: '代码开发',     desc: '在线代码开发：项目 + 文件树 + 编辑器' },
   self:   { icon: '🧬', title: '自我完善',     desc: '直接浏览 archon-dsh 源码并编辑保存（新建 / 删除可用）' },
 };
-const meta = computed(() => TOOL_META[view] || TOOL_META.mcp);
-const isCoder = computed(() => view === 'coder' || view === 'self');
-const isPlaceholder = computed(() => view === 'mcp' || view === 'expert');
+const meta = computed(() => TOOL_META[view.value] || TOOL_META.mcp);
+const isCoder = computed(() => view.value === 'coder' || view.value === 'self');
+const isPlaceholder = computed(() => view.value === 'mcp' || view.value === 'expert');
 
 // ---- 技能（⚙️ 技能页）----
 const toolSkills = ref<SkillInfo[]>([]);
@@ -184,16 +185,19 @@ onBeforeUnmount(() => stopJobsPolling());
         </div>
       </template>
 
-      <!-- 💻 代码开发 / 🧬 自我完善（内嵌 CodeView，占满页面） -->
-      <CodeView
-        v-else-if="isCoder"
-        :scene="view === 'self' ? 'self' : 'coder'"
-        embedded
-        @close="goBack()"
-        @session-opened="chatRef?.openChat()"
-      />
-      <!-- 浮动对话窗：代码开发 / 自我完善页内嵌，替代“返回对话” -->
-      <FloatingChat v-if="isCoder" ref="chatRef" />
+      <!-- 💻 代码开发 / 🧬 自我完善（内嵌 CodeView + 浮动对话，占满页面）。
+           注意：CodeView 与 FloatingChat 必须同处一个 v-if 分支（不得在 CodeView 的
+           v-else-if 与后续 v-else-if/v-else 之间插入独立 v-if 的兄弟节点），否则会打断
+           v-else-if 链，导致「未知工具」兜底在非 coder/self 工具页被错误渲染。 -->
+      <template v-else-if="isCoder">
+        <CodeView
+          :scene="view === 'self' ? 'self' : 'coder'"
+          embedded
+          @close="goBack()"
+          @session-opened="chatRef?.openChat()"
+        />
+        <FloatingChat ref="chatRef" />
+      </template>
 
       <!-- 🔗 MCP / 🧩 专家套件（规划中占位） -->
       <div v-else-if="isPlaceholder" class="tool-placeholder">
