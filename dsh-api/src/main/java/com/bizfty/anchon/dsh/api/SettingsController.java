@@ -2,6 +2,7 @@ package com.bizfty.anchon.dsh.api;
 
 import com.bizfty.anchon.dsh.settings.SettingDescriptor;
 import com.bizfty.anchon.dsh.settings.SettingsPathOp;
+import com.bizfty.anchon.dsh.settings.SchemasteryEnvelope;
 import com.bizfty.anchon.dsh.settings.SettingsRedactor;
 import com.bizfty.anchon.dsh.settings.SettingsService;
 import com.fasterxml.jackson.annotation.JsonInclude;
@@ -113,7 +114,8 @@ public class SettingsController {
                 ? null
                 : SettingsRedactor.redact(descriptors, userRaw).value();
         return new SettingsMetaDto(ns, descriptors, resolved.value(), user,
-                settingsService.revision(ns), resolved.secrets(), settingsService.applies(ns));
+                settingsService.revision(ns), resolved.secrets(), settingsService.applies(ns),
+                SchemasteryEnvelope.toEnvelope(descriptors));
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -123,7 +125,8 @@ public class SettingsController {
                                   Map<String, Object> user,
                                   long revision,
                                   List<SettingsRedactor.Secret> secrets,
-                                  String applies) {
+                                  String applies,
+                                  Map<String, Object> schema) {
     }
 
     public record SetBody(Object value, Long expectedRevision) {

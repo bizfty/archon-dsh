@@ -1,0 +1,16 @@
+{
+  "name": "@deepseek-ai/cosmokit",
+  "description": "A collection of common utilities (vendored from deepseek-harness 76fda72, browser-safe lib only)",
+  "version": "1.8.3",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "license": "MIT"
+}

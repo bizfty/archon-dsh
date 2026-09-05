@@ -1,0 +1,19 @@
+{
+  "name": "@deepseek-ai/dsh-client-schema-form",
+  "description": "Schema introspection and draft-editing helpers (vendored from deepseek-harness 76fda72 lib artifacts)",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "file:../schemastery"
+  },
+  "license": "MIT"
+}

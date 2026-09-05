@@ -1,14 +1,23 @@
 <script setup lang="ts">
-// SchemaForm.vue — schema 驱动表单容器（内核②/P2 递归 + P3 官方语义）。
-// 数据源：GET /api/settings/meta 的 redacted view（value/user/revision/secrets/applies）。
-// 草稿为 reactive 树（view.value 现值优先，缺键用 schema 默认递归构造）；
-// 顶层键行显示「已覆盖」（path ∈ user）与「恢复默认」（unset op）；
-// secret 叶子经 SchemaField write-only 上抛 → 收集为 set/unset path op；
-// 保存 = 一次性 POST /api/settings/{ns}/ops（diff 变更 + secret ops + unset ops，expectedRevision=view.revision）；
+// SchemaForm.vue — schema 驱动表单容器（内核②/P2 递归 + P3 官方语义 + C 档官方模型层）。
+// 数据源：GET /api/settings/meta 的 redacted view（value/user/revision/secrets/applies +
+// 官方 schemastery envelope schema 字段，C 档双发）。
+// 顶层字段源：view.schema 存在时经 dsh-client-schema-form rehydrateSchema 重建官方节点树，
+// 由 schemaFieldModel 归一为 RenderField（保序、label/role/visibleWhen/union→enum）；
+// 无 envelope（旧后端）回退 view.settings 描述符直通（字段级兼容）。
+// 草稿为 reactive 树（view.value 现值优先，缺键用 RenderField 默认递归构造）；
+// secret 顶层键不进 draft（值与变更都只走 write-only path op，防默认值误写）；
+// 保存 = validateDraft（官方校验）→ 一次性 POST /api/settings/{ns}/ops（diff 变更 + secret ops）；
 // 409 冲突 → 提示 + emit conflict（SettingsPage 重载最新 view，丢弃过期草稿）。
-import { computed, reactive, ref, watch } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { validateDraft } from '@deepseek-ai/dsh-client-schema-form';
 import { putSettingOps, type SettingNamespaceView, type SettingPathOp } from '../api';
 import { defaultValue, deepEquals } from '../schemaDefaults';
+import {
+  rootNodeFromEnvelope,
+  topRenderFields,
+  type RenderField,
+} from '../schemaFieldModel';
 import SchemaField from './SchemaField.vue';
 
 const props = defineProps<{
@@ -20,23 +29,39 @@ const emit = defineEmits<{
   (e: 'conflict', namespace: string): void;
 }>();
 
-/** 本地草稿树：以 view.value 初始化，未覆盖键用描述符默认值（含嵌套递归）。 */
+/** 官方 envelope 重建的 object 根（无/非法 → null，回退描述符直通）。 */
+const schemaRoot = computed(() => rootNodeFromEnvelope(props.view.schema));
+
+/** 顶层渲染字段：官方树保序优先；回退描述符。 */
+const fields = computed<RenderField[]>(() => topRenderFields(props.view.settings, schemaRoot.value));
+
+/** 本地草稿树：以 view.value 初始化，未覆盖键用字段默认值（含嵌套递归）；secret 顶层键跳过。 */
 const draft = reactive<Record<string, unknown>>({});
 
 function syncDraft(): void {
   const next: Record<string, unknown> = {};
-  for (const s of props.view.settings) {
-    const cur = props.view.value[s.key];
-    next[s.key] = cur !== undefined && cur !== null ? cur : defaultValue(s);
+  for (const f of fields.value) {
+    if (f.secret) continue; // secret 值不回显不入草稿（write-only sidecar）
+    const cur = props.view.value[f.key];
+    next[f.key] = cur !== undefined && cur !== null ? cur : defaultValue(f);
   }
   for (const k of Object.keys(draft)) delete draft[k];
   Object.assign(draft, next);
 }
 
 // view 替换（保存/冲突后 SettingsPage reload）→ 重同步草稿
-watch(() => [props.view.namespace, props.view.revision, props.view.value], syncDraft, {
-  immediate: true,
-  deep: true,
+watch(
+  () => [props.view.namespace, props.view.revision, props.view.value, props.view.schema],
+  syncDraft,
+  { immediate: true, deep: true },
+);
+
+// C 档验收标记：schema 字段存在且 rehydrate 成功 → official 驱动；否则回退 descriptor 直通。
+onMounted(() => {
+  console.info(
+    `[dsh-c] ns=${props.view.namespace} driver=${schemaRoot.value ? 'official' : 'descriptor'}`,
+    `fields=${fields.value.length} schema=${schemaRoot.value ? 'ok' : 'none'}`,
+  );
 });
 
 /** secret sidecar 查询：path.join('.') → set。 */
@@ -58,8 +83,8 @@ function overriddenTop(key: string): boolean {
 /** 恢复默认：本地回默认渲染 + 记 unset op（保存时提交，不 set 默认值）。 */
 const pendingUnset = reactive(new Set<string>());
 function resetTop(key: string): void {
-  const desc = props.view.settings.find((s) => s.key === key);
-  draft[key] = desc ? defaultValue(desc) : undefined;
+  const f = fields.value.find((x) => x.key === key);
+  draft[key] = f ? defaultValue(f) : undefined;
   pendingUnset.add(key);
 }
 
@@ -69,6 +94,11 @@ const pendingSecrets = reactive(
 );
 function onSecret(path: string[], value: unknown | null): void {
   pendingSecrets.set(path.join('.'), { path, value });
+}
+
+/** 草稿 → 纯 JSON 值（validateDraft 需 plain object；secret 与 undefined 不参与校验）。 */
+function plainDraft(): Record<string, unknown> {
+  return JSON.parse(JSON.stringify(draft)) as Record<string, unknown>;
 }
 
 const saving = ref(false);
@@ -82,20 +112,25 @@ async function saveAll(): Promise<void> {
   saveError.value = null;
   saveOk.value = '';
   try {
+    // 官方模型层校验：rehydrated schemastery 节点树拒绝非法草稿（enum 越界/数值越界/类型不符）
+    if (schemaRoot.value) {
+      const problem = validateDraft(schemaRoot.value, plainDraft());
+      if (problem) {
+        saveError.value = `校验未通过：${problem}`;
+        return;
+      }
+    }
     const ops: SettingPathOp[] = [];
-    const pending = new Set<string>();
-    // 1) 变更的顶层键（排除已恢复默认的键——它们走 unset）
-    for (const s of props.view.settings) {
-      const key = s.key;
-      if (pendingUnset.has(key)) continue;
-      const cur = draft[key];
-      const base = props.view.value[key];
-      if (!deepEquals(cur, base)) ops.push({ op: 'set', path: [key], value: cur });
+    // 1) 变更的顶层键（排除已恢复默认与 secret——二者走 unset/write-only path op）
+    for (const f of fields.value) {
+      if (f.secret || pendingUnset.has(f.key)) continue;
+      const cur = draft[f.key];
+      const base = props.view.value[f.key];
+      if (!deepEquals(cur, base)) ops.push({ op: 'set', path: [f.key], value: cur });
     }
     // 2) 恢复默认（unset）
     for (const key of pendingUnset) {
       ops.push({ op: 'unset', path: [key] });
-      pending.add(key);
     }
     // 3) secret set/unset
     for (const { path, value } of pendingSecrets.values()) {
@@ -130,15 +165,15 @@ async function saveAll(): Promise<void> {
 
 <template>
   <div class="schema-form">
-    <div v-for="s in view.settings" :key="s.key" class="sf-top">
-      <div v-if="overriddenTop(s.key)" class="sf-top-bar">
+    <div v-for="field in fields" :key="field.key" class="sf-top">
+      <div v-if="overriddenTop(field.key)" class="sf-top-bar">
         <span class="sf-badge-overridden" title="该键已由用户覆盖（view.user 在场）">已覆盖</span>
-        <el-button size="small" text class="sf-reset" @click="resetTop(s.key)">恢复默认</el-button>
+        <el-button size="small" text class="sf-reset" @click="resetTop(field.key)">恢复默认</el-button>
       </div>
       <SchemaField
-        :field="s"
+        :field="field"
         :layer="draft"
-        :path="[s.key]"
+        :path="[field.key]"
         :secret-set="secretSetAt"
         @secret="onSecret"
       />

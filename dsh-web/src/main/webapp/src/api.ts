@@ -1064,6 +1064,26 @@ export interface SettingDescriptor {
   secret?: boolean | null;
 }
 
+/** C 档（design-client-vue.md）：官方 schemastery envelope（schema.toJSON() 引用图）。 */
+export interface SchemasteryRefsNode {
+  type?: string;
+  /** 字面量（const）。 */
+  value?: unknown;
+  /** 渲染元数据：label/description/default/min/max/step/role/visibleWhen/dshType… */
+  meta?: Record<string, unknown>;
+  /** object 子属性：键 → 子 uid。 */
+  dict?: Record<string, number>;
+  /** array/dict 元素 / transform inner：子 uid。 */
+  inner?: number | null;
+  /** union/tuple/intersect 成员 / union 选项：子 uid 数组。 */
+  list?: number[];
+}
+export interface SchemasteryEnvelope {
+  /** root uid（恒 0）。 */
+  uid: number;
+  refs: Record<string, SchemasteryRefsNode>;
+}
+
 /** P3：secret 槽位（redacted view sidecar）——path 自值根寻址；set = 当前是否持有值。 */
 export interface SettingsSecret {
   path: string[];
@@ -1084,6 +1104,8 @@ export interface SettingsNamespaceView {
   secrets: SettingsSecret[];
   /** 生效时机 live|restart。 */
   applies: string;
+  /** C 档：官方 schemastery envelope（meta 端点双发；可能缺失于旧后端）。 */
+  schema?: SchemasteryEnvelope | null;
 }
 
 /** 一条 path 寻址编辑（POST /api/settings/{ns}/ops）。 */

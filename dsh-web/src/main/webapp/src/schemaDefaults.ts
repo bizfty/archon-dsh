@@ -3,7 +3,7 @@
 // 前端据此构造草稿默认树与联动求值；后端 defaultValue 可能是对象/数组实例，
 // 一律深拷贝防跨行/跨字段共享引用。
 
-import type { SettingDescriptor } from './api';
+import type { RenderField } from './schemaFieldModel';
 
 /** 深拷贝（structuredClone 可用时；标量原样返回）。 */
 function clone(v: unknown): unknown {
@@ -14,7 +14,7 @@ function clone(v: unknown): unknown {
 }
 
 /** 字段默认值：显式 defaultValue 优先（深拷贝）；否则按 type 语义兜底。 */
-export function defaultValue(f: SettingDescriptor): unknown {
+export function defaultValue(f: RenderField): unknown {
   if (f.defaultValue !== undefined && f.defaultValue !== null) {
     return clone(f.defaultValue);
   }
@@ -36,7 +36,7 @@ export function defaultValue(f: SettingDescriptor): unknown {
 }
 
 /** object 字段默认对象：children 逐个取默认值（含嵌套 object/array）。 */
-export function objectDefault(f: SettingDescriptor): Record<string, unknown> {
+export function objectDefault(f: RenderField): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const c of f.children ?? []) {
     out[c.key] = defaultValue(c);

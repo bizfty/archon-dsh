@@ -126,7 +126,40 @@ Vue dsh-web 以 iframe/路由前缀并存。结论维持：**Java 侧不推荐 A
 - 风险：官方包迭代追版本 → 收编 vendor 快照即固定版本（可控）；schema-form 仅 lib 无 src → 以 d.ts 为准，需自维护时提上游。
 - 不做：cordis 运行时引入 · React ui-* 包搬运 · 官方 wire 全协议替换主契约（archon REST 保留为主，envelope 为消费增强）。
 
-## 10. 下一步
+## 10. 实施状态与冒烟记录（2026-09-05）
 
-需用户圈定档位：A / B / C / C→B 渐进（默认推荐）。首次实施建议 PR = **P0 + P1（C 档全量）**，
-验证通过后再评估 P2/P3（B 档）。圈定后本设计即转为实现计划（DAG）基线。
+**C 档 P0 + P1 已落地（首个 PR = C 档全量）**，路线维持 Vue3 + Element Plus（A2 伺服停用）。
+
+### 已落地变更
+- **P0 vendor 收编**：`dsh-web/src/main/webapp/vendor/@deepseek-ai/{schemastery, dsh-client-schema-form}` + `cosmokit`（纯逻辑层，
+  无 React/cordis），`package.json` 未引 npm registry（vendor 即源），`vite.config.ts` alias + `tsconfig.json` paths 指向 vendor。
+- **P0 wire 双发**：`SchemasteryEnvelope`（dsh-settings）将 `SettingDescriptor` 树翻译为官方 schemastery envelope
+  （`{uid, refs}` 引用图；root=0，children 从 1；integer 语义经 `meta.dshType=integer` 标记）；
+  `SettingsController.GET /api/settings/meta` 在 P3 REST 数组旁并发现场 envelope（`schema` 字段），P3 读取零回归。
+- **P1 官方模型层驱动**：`api.ts` 增 envelope 类型与 `view.schema`；`schemaFieldModel.ts` 归一官方节点树 → `RenderField`
+  （保序/label/role/visibleWhen/union→enum/dshType 精度）；`SchemaForm.vue` 以 `rehydrateSchema` 重建官方根 → 渲染
+  自绘保留（EP 控件）；保存前 `validateDraft` 官方校验，草稿 diff 走既有 ops（set/unset + secret write-only path op），
+  secret 顶层键不入草稿（防默认值误写）；`SchemaField.vue` 高级/未知节点只读降级；`schemaDefaults.ts` 降为兼容薄层。
+- 运行时 driver 标记：SchemaForm `onMounted` console `[dsh-c] ns=… driver=official|descriptor`（envelope 缺失时回退描述符直通）。
+
+### 门禁
+- `mvn verify`：BUILD SUCCESS，622 tests / 0 fail（≥ 571 基线，不回退）。
+- `vite build`：✅（~36s，无 TS gate，按 §5.3 不强引 vue-tsc）。
+
+### 浏览器冒烟（boot jar = 最新 build，Chrome）
+- `/api/settings/meta`：agent ns 返回 P3 数组 + `schema` envelope（uid=0，refs=4；root object dict 保序含 temperature /
+  max-steps / max-parallel-tool-calls，叶子 number + `dshType=integer` + step/max 语义）。agent 实际 settings 3 叶一致。
+- 设置页：三字段 el-input-number 渲染（温度 0.7/step0.1/min0/max2；步数 200/max10000；并行 10/max64），step/min/max
+  元数据来自 envelope meta；温度 0.7→0.8 编辑 → 保存（validateDraft 通过 → ops diff set temperature → "已保存 ✓"）
+  → 后端 GET 回读 `temperature:0.8` → 刷新 UI 0.8/200/10 一致（reload → syncDraft）。
+- 会话页：工作区/会话树/设置入口渲染正常（未触达 B 档改动面）。
+
+### 遗留与假设
+- vendor 为快照即固定版本（schema-form 仅 d.ts 无 src，改进需自维护，见 §9）。
+- meta 双发为增强非替换：旧前端读 P3 数组不受影响；新前端 envelope 缺失自动回退描述符。
+- AgentLoop 读取零漂移：envelope 仅消费展示层，写路径仍为既有 ops + revision CAS。
+
+## 11. 下一步
+
+C 档（P0+P1）验证通过后评估 P2/P3（B 档：store.ts 事件投影 / App.vue 插槽化），或按档位圈定 A 判据复核。
+

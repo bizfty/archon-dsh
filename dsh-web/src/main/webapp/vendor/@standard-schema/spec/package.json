@@ -1,0 +1,7 @@
+{
+  "name": "@standard-schema/spec",
+  "description": "Type-only stub: schemastery d.ts references StandardSchemaV1; no runtime imports exist in the vendored lib.",
+  "version": "1.1.0",
+  "types": "index.d.ts",
+  "license": "MIT"
+}

@@ -1,0 +1,20 @@
+{
+  "name": "@deepseek-ai/schemastery",
+  "description": "Type driven schema validator (vendored from deepseek-harness 76fda72, browser-safe lib only)",
+  "version": "3.18.2",
+  "type": "module",
+  "main": "lib/index.mjs",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "import": "./lib/index.mjs",
+      "require": "./lib/index.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "dependencies": {
+    "@deepseek-ai/cosmokit": "file:../cosmokit"
+  },
+  "license": "MIT"
+}

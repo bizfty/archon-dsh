@@ -11,7 +11,14 @@
     "noEmit": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "types": ["vite/client"]
+    "types": ["vite/client"],
+    "baseUrl": ".",
+    "paths": {
+      "@deepseek-ai/cosmokit": ["vendor/@deepseek-ai/cosmokit"],
+      "@deepseek-ai/schemastery": ["vendor/@deepseek-ai/schemastery"],
+      "@deepseek-ai/dsh-client-schema-form": ["vendor/@deepseek-ai/dsh-client-schema-form"],
+      "@standard-schema/spec": ["vendor/@standard-schema/spec"]
+    }
   },
-  "include": ["src/**/*.ts", "src/**/*.vue", "vite.config.ts"]
+  "include": ["src/**/*.ts", "src/**/*.vue", "vite.config.ts", "vendor/**/*.d.ts"]
 }

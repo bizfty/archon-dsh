@@ -5,11 +5,11 @@
 // secret 叶子→write-only（不读值：输入/覆盖/清除经 emit 上抛，由 SchemaForm 以 path op 提交）。
 // path = 到本字段的完整路径（自命名空间值根，含自身 key），供 secret sidecar 定位。
 import { computed, ref } from 'vue';
-import type { SettingDescriptor } from '../api';
+import type { RenderField } from '../schemaFieldModel';
 import { defaultValue, deepEquals, objectDefault } from '../schemaDefaults';
 
 const props = defineProps<{
-  field: SettingDescriptor;
+  field: RenderField;
   /** 当前对象层：field.key 在此读写。 */
   layer: Record<string, unknown>;
   /** 到本字段的完整路径（含 field.key）。 */
@@ -93,7 +93,7 @@ function removeRow(i: number): void {
 function rowObject(row: unknown): Record<string, unknown> {
   return row && typeof row === 'object' && !Array.isArray(row) ? (row as Record<string, unknown>) : {};
 }
-function childPath(child: SettingDescriptor, index?: number): string[] {
+function childPath(child: RenderField, index?: number): string[] {
   return index === undefined ? [...props.path, child.key] : [...props.path, String(index), child.key];
 }
 </script>
@@ -182,6 +182,20 @@ function childPath(child: SettingDescriptor, index?: number): string[] {
         </el-button>
       </div>
       <div v-if="arr().length === 0" class="sf-array-empty">（空列表 — 点“添加”新增一项）</div>
+    </div>
+
+
+    <!-- 高级/未知 schemastery 类型：只读降级（原值保留，不参与编辑） -->
+    <div v-else-if="field.type === 'unknown'" class="sf-field sf-row">
+      <div class="sf-meta">
+        <label class="sf-label" :title="field.description ?? ''">{{ field.label ?? field.key }}</label>
+        <span v-if="field.description" class="sf-desc">{{ field.description }}</span>
+        <span class="sf-unknown-tag">只读 · 该字段类型暂不支持编辑</span>
+      </div>
+      <div class="sf-control sf-unknown-value">
+        <code v-if="layer[field.key] !== undefined">{{ JSON.stringify(layer[field.key]) }}</code>
+        <span v-else class="sf-fg-muted">（未设置）</span>
+      </div>
     </div>
 
     <!-- secret 叶子：write-only（值不读回） -->
@@ -284,4 +298,11 @@ function childPath(child: SettingDescriptor, index?: number): string[] {
 .sf-array-scalar { flex: 1; min-width: 0; }
 .sf-array-empty { color: var(--dsh-fg-2); font-size: 12px; padding: 4px 2px; }
 .sf-row-del { flex-shrink: 0; }
+.sf-unknown-tag { font-size: 11px; color: var(--dsh-fg-3, #999); }
+.sf-unknown-value { display: flex; align-items: center; }
+.sf-unknown-value code {
+  font-size: 12px; color: var(--dsh-fg-1); background: var(--dsh-bg-1, #f5f5f5);
+  border-radius: 4px; padding: 2px 6px; word-break: break-all; max-height: 80px; overflow: auto;
+}
+.sf-fg-muted { color: var(--dsh-fg-3, #999); font-size: 12px; }
 </style>

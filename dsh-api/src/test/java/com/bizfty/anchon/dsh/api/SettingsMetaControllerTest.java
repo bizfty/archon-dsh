@@ -11,6 +11,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
@@ -18,6 +19,7 @@ import java.util.stream.Stream;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -236,5 +238,45 @@ class SettingsMetaControllerTest {
         var resp = handler.badRequest(new IllegalArgumentException("数组越界"));
         assertEquals(HttpStatus.BAD_REQUEST, resp.getStatusCode());
         assertEquals("bad_request", resp.getBody().get("error"));
+    }
+
+
+    // ===== C 档：官方 schemastery envelope 双发 =====
+
+    @Test
+    void metaCarriesSchemasteryEnvelopeAlongsideP3Fields() {
+        List<SettingsController.SettingsMetaDto> metas = controller().meta().getBody();
+        SettingsController.SettingsMetaDto agent = metas.get(0);
+        Map<String, Object> schema = agent.schema();
+        assertNotNull(schema, "meta 必须携带官方 schemastery envelope（双发）");
+        assertEquals(0, schema.get("uid"), "root uid 恒为 0");
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> refs = (Map<String, Object>) schema.get("refs");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> root = (Map<String, Object>) refs.get("0");
+        assertEquals("object", root.get("type"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> dict = (Map<String, Object>) root.get("dict");
+        assertEquals(agent.settings().stream().map(SettingDescriptor::key).toList(),
+                new ArrayList<>(dict.keySet()), "envelope 顶层键与描述符保序一致");
+
+        // secret 命名空间：叶子节点 meta.role=secret（官方 role 语义）
+        SettingsController.SettingsMetaDto creds = secretController().meta().getBody().stream()
+                .filter(m -> m.namespace().equals("creds")).findFirst().orElseThrow();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> credsRoot = (Map<String, Object>) ((Map<String, Object>) creds.schema().get("refs")).get("0");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> credsDict = (Map<String, Object>) credsRoot.get("dict");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> apiNode = (Map<String, Object>) refsOf(creds).get(String.valueOf(credsDict.get("apiKey")));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> apiMeta = (Map<String, Object>) apiNode.get("meta");
+        assertEquals("secret", apiMeta.get("role"));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> refsOf(SettingsController.SettingsMetaDto meta) {
+        return (Map<String, Object>) meta.schema().get("refs");
     }
 }
