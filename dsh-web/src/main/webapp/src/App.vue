@@ -27,6 +27,7 @@ import {
   type SseEvent,
 } from './api';
 import { WsClient, connectionLabel, type SessionFrame } from './ws';
+import { sessionEventLog } from './eventLog';
 
 /** 传输层可用性：WS 为主通道，连续建连失败回退 SSE（SSE 具备断线续流重连）。 */
 const wsAvailable = ref(true);
@@ -306,13 +307,7 @@ function finalize(): void {
   if (id) {
     setSessionRunning(id, false);
     clearStream(id);
-  }
-  if (id) {
-    listMessages(id).then((ms) => { appState.messages = ms as never[]; }).catch(() => undefined);
-    loadSessions().catch(() => undefined);
-    refreshGoal(id).catch(() => undefined);
-    refreshSubagents(id).catch(() => undefined);
-    refreshPlan(id).catch(() => undefined);
+    resyncSession(id, { sessions: true });
   }
 }
 
@@ -352,14 +347,39 @@ function onSelectTool(id: string): void {
   appState.view = id as 'chat' | 'plan' | 'goal' | 'trajectory' | 'jobs' | 'coder' | 'self' | 'mcp' | 'skills' | 'expert' | 'settings';
 }
 
+/**
+ * 当前会话全量域重拉（resync 基线）：断线重连 / 回合收尾 / 事件缺口后的最终一致兜底。
+ * 收敛 onWsReconnected、handleEvent(TURN_END/TURN_ERROR)、finalize 中的重复刷新段；
+ * fire-and-forget（与原 .then() 并行模式等价），单项失败静默保留旧值。
+ * opts.sessions=true 时额外刷新侧栏会话列表（标题/时间随回合可能更新）。
+ * 语义注记：较旧实现补齐了 cancelled/失败分支的 goal/subagents/plan 刷新 —— 这些域
+ * 在回合收尾时已稳定或可能变化（cancel 后 goal 需可继续），多刷无害且更完整。
+ */
+function resyncSession(sessionId: string, opts: { sessions?: boolean } = {}): void {
+  listMessages(sessionId).then((ms) => { appState.messages = ms as never[]; }).catch(() => undefined);
+  refreshGoal(sessionId).catch(() => undefined);
+  refreshSubagents(sessionId).catch(() => undefined);
+  refreshPlan(sessionId).catch(() => undefined);
+  if (opts.sessions) loadSessions().catch(() => undefined);
+}
+
 // ---- 常驻 WebSocket 下行（对齐官方：退避重连 + connected/reconnecting）----
 function onWsFrame(frame: SessionFrame): void {
-  // 流按会话隔离：事件按 sessionId 分发；非当前会话只更新 running/流缓冲，消息切回时重拉
-  handleEvent(frame.sessionId, frame.event.eventType, frame.event.data);
+  // 有序交付：帧先经 EventLog 按会话内 seq 去重/缺口缓冲，仅按序就绪的帧才进 handleEvent。
+  // 乱序帧滞留等待、重复帧丢弃；断线缺口由 onWsReconnected → resyncSession 全量兜底。
+  const { ready } = sessionEventLog.accept(frame);
+  for (const f of ready) {
+    handleEvent(f.sessionId, f.event.eventType, f.event.data);
+  }
 }
 
 function onWsState(state: 'connected' | 'reconnecting' | 'closed'): void {
   appState.connectionState = state;
+  if (state !== 'connected') {
+    // 断线/关闭：旧连接的水位作废（后端重连不重放历史帧），重连后首帧重立基线。
+    // 已应用帧由 resyncSession 全量重拉校正 —— EventLog 只防重连后重复应用。
+    sessionEventLog.resetAll();
+  }
 }
 
 function onWsAvailability(available: boolean): void {
@@ -370,13 +390,10 @@ function onWsAvailability(available: boolean): void {
 }
 
 function onWsReconnected(): void {
-  // 重连成功：resync 当前会话消息与子代理（断线期间可能遗漏）
+  // 重连成功：断线期间事件已丢失（后端不重放）→ 当前会话全量 resync。
+  // EventLog 水位在 reconnecting 时已 resetAll，重连后首帧即新基线。
   const id = appState.sessionId;
-  if (id) {
-    listMessages(id).then((ms) => { appState.messages = ms as never[]; }).catch(() => undefined);
-    refreshSubagents(id).catch(() => undefined);
-    refreshPlan(id).catch(() => undefined);
-  }
+  if (id) resyncSession(id);
 }
 
 /** 会话事件 → UI 状态（按 sessionId 归属；非当前会话仅更新 running/流缓冲）。 */
@@ -426,9 +443,7 @@ function handleEvent(sessionId: string, eventType: string, data: Record<string, 
         // 用户「停止生成」：静默复位（stop() 已提示），保留已生成内容
         setSessionRunning(sessionId, false);
         clearStream(sessionId);
-        if (isCurrent) {
-          listMessages(sessionId).then((ms) => { appState.messages = ms as never[]; }).catch(() => undefined);
-        }
+        if (isCurrent) resyncSession(sessionId);
         break;
       }
       // turn 失败（如超过最大步数上限）：复位该会话运行状态 + 明确提示
@@ -436,21 +451,17 @@ function handleEvent(sessionId: string, eventType: string, data: Record<string, 
       setSessionRunning(sessionId, false);
       clearStream(sessionId);
       pushNotice(`${isCurrent ? '' : '[' + sessionId.slice(0, 8) + '] '}任务失败: ${String(data.message ?? 'agent 执行出错')}`);
-      if (isCurrent) {
-        listMessages(sessionId).then((ms) => { appState.messages = ms as never[]; }).catch(() => undefined);
-      }
+      if (isCurrent) resyncSession(sessionId);
       break;
     case 'TURN_END':
-      // turn 完成：复位该会话状态；当前会话则拉取持久化消息刷新（最终 assistant 内容落库）
+      // turn 完成：复位该会话状态；当前会话则全量 resync（最终 assistant 内容落库）
       setSessionRunning(sessionId, false);
       clearStream(sessionId);
       if (isCurrent) {
-        listMessages(sessionId).then((ms) => { appState.messages = ms as never[]; }).catch(() => undefined);
-        refreshGoal(sessionId).catch(() => undefined);
-        refreshSubagents(sessionId).catch(() => undefined);
-        refreshPlan(sessionId).catch(() => undefined);
+        resyncSession(sessionId, { sessions: true });
+      } else {
+        loadSessions().catch(() => undefined); // 标题/时间可能更新，始终刷新侧边栏
       }
-      loadSessions().catch(() => undefined); // 标题/时间可能更新，始终刷新侧边栏
       break;
     default:
       break;

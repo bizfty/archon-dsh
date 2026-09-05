@@ -128,7 +128,7 @@ Vue dsh-web 以 iframe/路由前缀并存。结论维持：**Java 侧不推荐 A
 
 ## 10. 实施状态与冒烟记录（2026-09-05）
 
-**C 档 P0 + P1 已落地（首个 PR = C 档全量）**，路线维持 Vue3 + Element Plus（A2 伺服停用）。
+**B 档 L1（store.ts 事件投影）已于 C 档 P0+P1 之上追加落地**。路线维持 Vue3 + Element Plus（A2 伺服停用）。
 
 ### 已落地变更
 - **P0 vendor 收编**：`dsh-web/src/main/webapp/vendor/@deepseek-ai/{schemastery, dsh-client-schema-form}` + `cosmokit`（纯逻辑层，
@@ -140,11 +140,18 @@ Vue dsh-web 以 iframe/路由前缀并存。结论维持：**Java 侧不推荐 A
   （保序/label/role/visibleWhen/union→enum/dshType 精度）；`SchemaForm.vue` 以 `rehydrateSchema` 重建官方根 → 渲染
   自绘保留（EP 控件）；保存前 `validateDraft` 官方校验，草稿 diff 走既有 ops（set/unset + secret write-only path op），
   secret 顶层键不入草稿（防默认值误写）；`SchemaField.vue` 高级/未知节点只读降级；`schemaDefaults.ts` 降为兼容薄层。
+- **B/L1 事件投影有序交付层**：`webapp/src/eventLog.ts`（纯 TS，node 单测无 DOM）以每会话 `seq` 单调去重：
+  首帧（无基线）即建水位直接 applied；缺口帧滞留缓冲，前序到达后链式排空（顺序正确）；已应用/缓冲/低水位重复帧判 duplicate；
+  `reset/resetAll` 清状态（断线重连重设新基线）、`setWatermark` 预留后端增量端点、缺口超上限保守 self-reset（靠全量重拉兜底）、
+  非正整数 seq 防御性丢弃。`App.vue` script 接线：`onWsFrame` 帧经 EventLog 按序应用（乱序被缓冲直至排空），`onWsState`
+  断线 `resetAll`（重连后首帧即新水位），`connect/resyncSession` 收敛重复的全量拉取段；template/style 零改动。
+  新增 `vitest` devDependency + `npm test`（10 用例含乱序/去重/跨会话隔离/缺口补齐/防御）。
 - 运行时 driver 标记：SchemaForm `onMounted` console `[dsh-c] ns=… driver=official|descriptor`（envelope 缺失时回退描述符直通）。
 
 ### 门禁
 - `mvn verify`：BUILD SUCCESS，622 tests / 0 fail（≥ 571 基线，不回退）。
 - `vite build`：✅（~36s，无 TS gate，按 §5.3 不强引 vue-tsc）。
+- `npm test`（vitest，webapp）：10/10 绿（eventLog 有序交付层，node 环境纯逻辑）。
 
 ### 浏览器冒烟（boot jar = 最新 build，Chrome）
 - `/api/settings/meta`：agent ns 返回 P3 数组 + `schema` envelope（uid=0，refs=4；root object dict 保序含 temperature /
@@ -161,5 +168,5 @@ Vue dsh-web 以 iframe/路由前缀并存。结论维持：**Java 侧不推荐 A
 
 ## 11. 下一步
 
-C 档（P0+P1）验证通过后评估 P2/P3（B 档：store.ts 事件投影 / App.vue 插槽化），或按档位圈定 A 判据复核。
+B/L1（事件投影）已落地；B/L3（App.vue 拆槽 + 注册表）与 A 档真身判据复核留待后续评估。
 
