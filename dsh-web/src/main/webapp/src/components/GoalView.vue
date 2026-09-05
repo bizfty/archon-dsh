@@ -2,11 +2,8 @@
 // 目标视图（Element Plus）：创建 / 查看 / 更新（CAS）。
 import { reactive, watch } from 'vue';
 import { appState } from '../store';
+import { doGoalCreate, doGoalUpdate } from '../sessionActs';
 
-const emit = defineEmits<{
-  (e: 'create', objective: string, maxGoalRounds?: number): void;
-  (e: 'update', action: string, extra?: Record<string, unknown>): void;
-}>();
 
 const form = reactive({ objective: '', maxRounds: 20 });
 
@@ -24,11 +21,11 @@ watch(
 function create(): void {
   const objective = form.objective.trim();
   if (!objective) return;
-  emit('create', objective, form.maxRounds > 0 ? form.maxRounds : undefined);
+  void doGoalCreate(objective, form.maxRounds > 0 ? form.maxRounds : undefined);
 }
 
 function edit(): void {
-  emit('update', 'edit', {
+  void doGoalUpdate('edit', {
     objective: form.objective.trim() || undefined,
     maxGoalRounds: form.maxRounds > 0 ? form.maxRounds : undefined,
   });
@@ -36,7 +33,7 @@ function edit(): void {
 
 function blocked(): void {
   const reason = window.prompt('阻塞原因（blocked reason）:');
-  if (reason) emit('update', 'blocked', { blockedCode: 'manual', blockedReason: reason });
+  if (reason) void doGoalUpdate('blocked', { blockedCode: 'manual', blockedReason: reason });
 }
 
 const phaseTag = (p: string): 'success' | 'warning' | 'info' | 'danger' => {
@@ -88,9 +85,9 @@ const phaseTag = (p: string): 'success' | 'warning' | 'info' | 'danger' => {
       </el-form>
       <div class="actions">
         <el-button type="primary" @click="edit">保存修改</el-button>
-        <el-button v-if="appState.goal.phase !== 'complete'" type="success" @click="emit('update', 'complete')">完成</el-button>
-        <el-button v-if="appState.goal.phase !== 'paused'" @click="emit('update', 'pause')">暂停</el-button>
-        <el-button v-else type="success" @click="emit('update', 'resume')">恢复</el-button>
+        <el-button v-if="appState.goal.phase !== 'complete'" type="success" @click="doGoalUpdate('complete')">完成</el-button>
+        <el-button v-if="appState.goal.phase !== 'paused'" @click="doGoalUpdate('pause')">暂停</el-button>
+        <el-button v-else type="success" @click="doGoalUpdate('resume')">恢复</el-button>
         <el-button type="danger" @click="blocked">标记阻塞</el-button>
       </div>
     </div>

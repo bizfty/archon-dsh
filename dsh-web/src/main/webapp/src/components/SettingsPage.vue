@@ -6,9 +6,9 @@
 import { onMounted, ref } from 'vue';
 import { fetchSettingsMeta, type SettingsNamespaceView } from '../api';
 import SchemaForm from './SchemaForm.vue';
-import { pushNotice } from '../store';
+import { appState, pushNotice } from '../store';
 
-const emit = defineEmits<{ (e: 'back'): void }>();
+function goBack(): void { appState.view = 'chat'; }
 
 const namespaces = ref<SettingsNamespaceView[]>([]);
 const loading = ref(false);
@@ -51,7 +51,7 @@ onMounted(() => void load());
         <b>设置</b>
         <span class="settings-page-desc">schema 驱动动态表单（redacted view + revision CAS + secret write-only）</span>
       </div>
-      <el-button size="small" text class="settings-back" @click="emit('back')" title="返回对话">← 返回对话</el-button>
+      <el-button size="small" text class="settings-back" @click="goBack()" title="返回对话">← 返回对话</el-button>
     </header>
 
     <div class="settings-page-body">

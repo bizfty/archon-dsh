@@ -148,6 +148,33 @@ Vue dsh-web 以 iframe/路由前缀并存。结论维持：**Java 侧不推荐 A
   新增 `vitest` devDependency + `npm test`（10 用例含乱序/去重/跨会话隔离/缺口补齐/防御）。
 - 运行时 driver 标记：SchemaForm `onMounted` console `[dsh-c] ns=… driver=official|descriptor`（envelope 缺失时回退描述符直通）。
 
+### B/L3 拆槽落地（App.vue 拆槽 + module 注册表；文档：design-client-vue-l3-slots.md）
+
+经用户确认走「全量 P3」路径（超出文档 §7 保守版）：除「组装来源注册化」外，把跨模块业务动作也下沉为
+独立组合式模块，使各视图真正自包含 —— 新增「槽/视图」只需 registerViews.register，App.vue / MainShell 均不改。
+
+**新增文件**
+- `src/registry.ts` + `registry.test.ts`：ViewModule{key,component,shell,label?,tab?,activate?} + app 级 viewRegistry 单例；
+  已含 register 覆盖语义 / get / list(shell) / unregister / keys / clear。单测 6 用例绿。
+- `src/components/Slot.vue`：按 registry + active 装配单个模块的宿主渲染器（透传 $attrs）。
+- `src/registerViews.ts`：side-effect 注册 —— main 壳 body 视图 chat/plan/goal/trajectory（tab:true），
+  standalone 独立页 settings + mcp/skills/jobs/coder/self/expert（ToolsPage）。App.vue import 即装配。
+- `src/components/MainShell.vue`：原 App.vue `<main>` 壳整块抽出（header/subagents/tabs/body/composer）；
+  tabs 与 body 均 `v-for` 遍历 `viewRegistry.list('main')`，body 用 v-show 保留各视图状态（页面结构等价）。
+- `src/components/PlanBody.vue`：原 App.vue 内联 plan toolbar/alert/文本 collapse + `<PlanView>` 组合为 body 模块。
+- 跨模块动作下沉（组合式注入，不引 cordis/React）：`floating.ts`（子代理抽屉 + 目录浏览器）、
+  `planMode.ts`（计划模式 text/busy/toggle/submit）、`sessionActs.ts`（会话级动作 loadSessions/openSession/
+  connectToWorkspace/removeSession/goal/switch*/workspace 命令）、`turn.ts`（send/stop/continue + WS/SSE 下行
+  事件投影 + onWsFrame/onWsState/onWsAvailability/onWsReconnected，App.vue 仅桥接 WsClient）。
+- `store.ts`：+`wsAvailable`/`setWsAvailable`（传输可用性从 App.vue ref 下沉为全局）。
+
+**改造（自包含化，去 emit 依赖）**：GoalView(MsgView/PlanView/SettingsPage/ToolsPage —— 原 `@emit` 回调改为
+直接 `import` 上述模块函数或 appState.view='chat'；MsgView choose-workspace → floating.openDirBrowser；
+GoalView create/update → sessionActs.doGoalCreate/doGoalUpdate；PlanView continue → turn.continuePlan）。
+
+**App.vue 瘦身**：保留 sidebar + WS 接线 + 冷启动 + 全局浮层渲染；顶层视图分发 = 查 viewRegistry——
+`appState.view` 命中 standalone 模块则渲染该独立页，否则渲染 `<MainShell/>`（body/tabs 内部遍历注册表）。
+
 ### 门禁
 - `mvn verify`：BUILD SUCCESS，622 tests / 0 fail（≥ 571 基线，不回退）。
 - `vite build`：✅（~36s，无 TS gate，按 §5.3 不强引 vue-tsc）。
@@ -168,5 +195,5 @@ Vue dsh-web 以 iframe/路由前缀并存。结论维持：**Java 侧不推荐 A
 
 ## 11. 下一步
 
-B/L1（事件投影）已落地；B/L3（App.vue 拆槽 + 注册表）与 A 档真身判据复核留待后续评估。
+B/L3（拆槽 + 注册表）已落地；A 档真身引入判据复核可留待后续评估。
 

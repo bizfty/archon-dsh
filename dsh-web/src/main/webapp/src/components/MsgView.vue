@@ -4,10 +4,8 @@ import { computed, nextTick, onMounted, ref, shallowRef, watch } from 'vue';
 import { appState, type MessageView } from '../store';
 import { renderMarkdown, escapeHtml } from '../render';
 import { answerQuestion, listToolMeta, pendingQuestions, readFile, type ToolMeta } from '../api';
+import { openDirBrowser } from '../floating';
 
-const emit = defineEmits<{
-  (e: 'choose-workspace'): void;
-}>();
 
 /** 文件查看弹窗（点击工具行路径触发）。 */
 const fileDialog = ref<{ path: string; content: string; loading: boolean; error: string; isMarkdown: boolean } | null>(null);
@@ -316,7 +314,7 @@ async function submitAnswer(): Promise<void> {
         <div>🛠 工具：bash / fs / subagent / workflow / 浏览器 / GitHub…</div>
       </div>
       <!-- hero：先选工作目录再开会话（对齐官方 EmptyHero workspace chip） -->
-      <button class="hero-workspace-btn" @click="emit('choose-workspace')">
+      <button class="hero-workspace-btn" @click="openDirBrowser()">
         📁 选择工作目录开始会话
       </button>
     </div>

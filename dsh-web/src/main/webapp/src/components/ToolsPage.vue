@@ -8,9 +8,9 @@ import { listSkills, listJobs, killJob, type SkillInfo } from '../api';
 import CodeView from './CodeView.vue';
 import FloatingChat from './FloatingChat.vue';
 
-const props = defineProps<{ view: string }>();
+const view = computed(() => String(appState.view));
 const chatRef = ref<InstanceType<typeof FloatingChat> | null>(null);
-const emit = defineEmits<{ (e: 'back'): void }>();
+function goBack(): void { appState.view = 'chat'; }
 
 /** 工具页面元数据（标题栏展示）。 */
 const TOOL_META: Record<string, { icon: string; title: string; desc: string }> = {
@@ -21,9 +21,9 @@ const TOOL_META: Record<string, { icon: string; title: string; desc: string }> =
   coder:  { icon: '💻', title: '代码开发',     desc: '在线代码开发：项目 + 文件树 + 编辑器' },
   self:   { icon: '🧬', title: '自我完善',     desc: '直接浏览 archon-dsh 源码并编辑保存（新建 / 删除可用）' },
 };
-const meta = computed(() => TOOL_META[props.view] || TOOL_META.mcp);
-const isCoder = computed(() => props.view === 'coder' || props.view === 'self');
-const isPlaceholder = computed(() => props.view === 'mcp' || props.view === 'expert');
+const meta = computed(() => TOOL_META[view] || TOOL_META.mcp);
+const isCoder = computed(() => view === 'coder' || view === 'self');
+const isPlaceholder = computed(() => view === 'mcp' || view === 'expert');
 
 // ---- 技能（⚙️ 技能页）----
 const toolSkills = ref<SkillInfo[]>([]);
@@ -107,7 +107,7 @@ function jobStatusText(j: { status: string }): string {
 
 // ---- 视图切换副作用：进入定时任务页启动轮询，离开停止；进入技能页加载一次 ----
 watch(
-  () => props.view,
+  () => view,
   (v) => {
     if (v === 'jobs') {
       void refreshJobs();
@@ -133,12 +133,12 @@ onBeforeUnmount(() => stopJobsPolling());
         <span class="tool-page-desc">{{ meta.desc }}</span>
       </div>
       <el-button v-if="isCoder" size="small" text class="tool-back" @click="chatRef?.toggle()" title="打开/收起浮动对话（边看代码边对话）">💬 对话</el-button>
-      <el-button v-else size="small" text class="tool-back" @click="emit('back')" title="返回对话">← 返回对话</el-button>
+      <el-button v-else size="small" text class="tool-back" @click="goBack()" title="返回对话">← 返回对话</el-button>
     </header>
 
     <div class="tool-page-body">
       <!-- ⚙️ 技能 -->
-      <template v-if="props.view === 'skills'">
+      <template v-if="view === 'skills'">
         <div class="tools-view-head">
           <b>⚙️ 技能（Skill）</b>
           <span class="jobs-hint">可在对话中通过 /skill 或 + 按钮调用</span>
@@ -158,7 +158,7 @@ onBeforeUnmount(() => stopJobsPolling());
       </template>
 
       <!-- ⏰ 定时任务（后台任务列表） -->
-      <template v-else-if="props.view === 'jobs'">
+      <template v-else-if="view === 'jobs'">
         <div class="tools-view-head">
           <b>⏰ 定时任务（当前会话）</b>
           <span class="jobs-hint">每 3s 自动刷新 · 重启后清空（进程内存）</span>
@@ -187,9 +187,9 @@ onBeforeUnmount(() => stopJobsPolling());
       <!-- 💻 代码开发 / 🧬 自我完善（内嵌 CodeView，占满页面） -->
       <CodeView
         v-else-if="isCoder"
-        :scene="props.view === 'self' ? 'self' : 'coder'"
+        :scene="view === 'self' ? 'self' : 'coder'"
         embedded
-        @close="emit('back')"
+        @close="goBack()"
         @session-opened="chatRef?.openChat()"
       />
       <!-- 浮动对话窗：代码开发 / 自我完善页内嵌，替代“返回对话” -->

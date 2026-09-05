@@ -6,11 +6,11 @@ import {
   getPlan, createPlan, updateStepStatus, reviewStep, completePlan, abandonPlan, getStepExecution,
   type PlanView as PlanDetailView, type PlanStep, type StepExecutionView,
 } from '../api';
+import { continuePlan } from '../turn';
 
 /** DAG 计划视图：步骤状态 + 依赖图（mermaid）+ 下一步可执行提示。
  *  计划由 agent 用 plan_create 建立，或由模型在 plan 模式下提交；本视图用于人类查看与推进。 */
 
-const emit = defineEmits<{ (e: 'continue'): void }>();
 
 const plan = ref<PlanDetailView | null>(null);
 const loading = ref(false);
@@ -352,7 +352,7 @@ defineExpose({ refresh });
             size="small"
             type="primary"
             :disabled="plan.plan.status !== 'active' || plan.nextSteps.length === 0"
-            @click="emit('continue')"
+            @click="continuePlan()"
           >🔄 继续执行</el-button>
           <el-button size="small" @click="refresh">刷新</el-button>
           <el-button size="small" type="success" @click="doComplete">完成计划</el-button>

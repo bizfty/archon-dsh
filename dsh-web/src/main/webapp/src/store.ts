@@ -176,6 +176,9 @@ export const appState = reactive({
   /** 常驻 WebSocket 下行连接状态（对齐官方 connected/reconnecting）。 */
   connectionState: 'connecting' as 'connecting' | 'connected' | 'reconnecting' | 'closed',
 
+  /** 传输层可用性：WS 为主通道，连续建连失败回退 SSE（SSE 具备断线续流重连）。 */
+  wsAvailable: true,
+
   /** 会话的子代理列表（chat 顶部展示，对齐官方 ui-subagent）。 */
   subagents: [] as { id: string; sessionId: string; delegationDepth: number; status: string; lastContent: string | null; createdAt: string | null }[],
 
@@ -193,6 +196,10 @@ export const appState = reactive({
   compactSummary: null as CompactSummary | null,
   compacting: false,
 });
+
+export function setWsAvailable(v: boolean): void {
+  appState.wsAvailable = v;
+}
 
 export function setSidebarCollapsed(v: boolean): void {
   appState.sidebarCollapsed = v;
