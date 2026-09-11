@@ -11,6 +11,26 @@ export interface SessionDto {
   status: string;
   createdAt: string;
   updatedAt: string;
+  /** 会话起始表单（可空）：新建空白会话下发首问 schema，前端据此弹居中浮层。 */
+  openingForm?: OpeningForm | null;
+}
+
+/** 会话起始表单字段（对齐 questionModel 的 QField 子集）。 */
+export interface OpeningField {
+  key: string;
+  kind: string;
+  label?: string;
+  placeholder?: string;
+  required?: boolean;
+  rows?: number;
+  options?: string[] | null;
+}
+
+/** 后端下发的首问 schema。 */
+export interface OpeningForm {
+  title?: string;
+  question?: string;
+  fields?: OpeningField[];
 }
 
 export interface MessageDto {
@@ -118,6 +138,13 @@ async function parse<T>(resp: Response): Promise<T> {
 export async function listSessions(): Promise<SessionDto[]> {
   const resp = await fetch(`${BASE}/api/sessions`, { headers: headers(false) });
   return parse<SessionDto[]>(resp);
+}
+
+
+/** 正在执行/排队中的会话 id（供页面刷新/WS 重连后恢复运行指示：小点 + 输入锁定）。 */
+export async function listRunningSessions(): Promise<string[]> {
+  const resp = await fetch(`${BASE}/api/sessions/running`, { headers: headers(false) });
+  return parse<string[]>(resp);
 }
 
 /** 创建会话 */
@@ -705,6 +732,144 @@ export async function killJob(sessionId: string, jobId: string): Promise<{ ok: b
     { method: 'POST', headers: headers() },
   );
   return parse<{ ok: boolean; jobId: string }>(resp);
+}
+
+// ---------- 计划任务（工具 → 计划任务工作台）----------
+
+export type PlanTaskStatus =
+  | 'queued' | 'claimed' | 'running' | 'waiting_question'
+  | 'done' | 'failed' | 'killed';
+
+/** 运行态存活判定：alive=运行中 / stale=疑似卡死 / lost=失联 / n/a=非活跃态。 */
+export type PlanTaskLiveness = 'alive' | 'stale' | 'lost' | 'n/a';
+
+export interface PlanTaskView {
+  id: string;
+  workspaceId: string;
+  prompt: string;
+  status: PlanTaskStatus;
+  claimedBy: string | null;
+  executorSessionId: string | null;
+  createdAt: number;
+  claimedAt: number;
+  finishedAt: number;
+  result: string | null;
+  error: string | null;
+  attempt: number;
+  // ---- 运行态观测（新增）----
+  lastHeartbeatAt: number;
+  lastActivityAt: number;
+  activity: string | null;
+  liveness: PlanTaskLiveness;
+  elapsedMs: number;
+  heartbeatAgeMs: number;
+}
+
+/** 单任务运行态（GET /{taskId}/runtime）。 */
+export interface PlanTaskRuntime {
+  taskId: string;
+  status: PlanTaskStatus;
+  liveness: PlanTaskLiveness;
+  lastHeartbeatAt: number;
+  lastActivityAt: number;
+  activity: string | null;
+  elapsedMs: number;
+  inFlight: number;
+  heartbeatAgeMs: number;
+}
+
+/** 工作区 Worker 运行态（GET /workers）。 */
+export interface PlanTaskWorkers {
+  workspaceId: string;
+  concurrency: number;
+  inFlight: number;
+  runningTaskIds: string[];
+  staleThresholdMs: number;
+  lostThresholdMs: number;
+}
+
+/** 待确认问题 × 所属计划任务（全局汇总数据源）。 */
+export interface PlanTaskQuestion {
+  task_id: string;
+  workspace_id: string;
+  prompt: string;
+  question_id: string;
+  question: string;
+  options: string[] | null;
+  multi_select: boolean;
+}
+
+/** 批量提交多个任务；workspaceId 缺省用当前工作区。 */
+export async function submitPlanTasks(
+  workspaceId: string,
+  prompts: string[],
+): Promise<{ ok: boolean; tasks: PlanTaskView[] }> {
+  const resp = await fetch(`${BASE}/api/plan-tasks/batch`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify({ workspaceId, tasks: prompts }),
+  });
+  return parse<{ ok: boolean; tasks: PlanTaskView[] }>(resp);
+}
+
+/** 按工作区列出任务池。 */
+export async function listPlanTasks(workspaceId: string): Promise<PlanTaskView[]> {
+  const q = `workspaceId=${encodeURIComponent(workspaceId)}`;
+  const resp = await fetch(`${BASE}/api/plan-tasks?${q}`, { headers: headers(false) });
+  return parse<PlanTaskView[]>(resp);
+}
+
+/** 某工作区待确认问题聚合（任务级 + 全局汇总）。 */
+export async function pendingPlanTaskQuestions(workspaceId: string): Promise<PlanTaskQuestion[]> {
+  const q = `workspaceId=${encodeURIComponent(workspaceId)}`;
+  const resp = await fetch(`${BASE}/api/plan-tasks/questions/pending?${q}`, { headers: headers(false) });
+  return parse<PlanTaskQuestion[]>(resp);
+}
+
+/** 重跑计划任务（终态/失败 → queued）。 */
+export async function rerunPlanTask(workspaceId: string, taskId: string): Promise<{ ok: boolean; task: PlanTaskView }> {
+  const resp = await fetch(
+    `${BASE}/api/plan-tasks/${encodeURIComponent(taskId)}/rerun?workspaceId=${encodeURIComponent(workspaceId)}`,
+    { method: 'POST', headers: headers() },
+  );
+  return parse<{ ok: boolean; task: PlanTaskView }>(resp);
+}
+
+/** 终止计划任务（best-effort）。 */
+export async function killPlanTask(workspaceId: string, taskId: string): Promise<{ ok: boolean; task: PlanTaskView }> {
+  const resp = await fetch(
+    `${BASE}/api/plan-tasks/${encodeURIComponent(taskId)}/kill?workspaceId=${encodeURIComponent(workspaceId)}`,
+    { method: 'POST', headers: headers() },
+  );
+  return parse<{ ok: boolean; task: PlanTaskView }>(resp);
+}
+
+/** 单任务运行态（存活判定 + 心跳 + 进度）。 */
+export async function getPlanTaskRuntime(workspaceId: string, taskId: string): Promise<PlanTaskRuntime> {
+  const q = `workspaceId=${encodeURIComponent(workspaceId)}`;
+  const resp = await fetch(
+    `${BASE}/api/plan-tasks/${encodeURIComponent(taskId)}/runtime?${q}`,
+    { headers: headers(false) },
+  );
+  return parse<PlanTaskRuntime>(resp);
+}
+
+/** 工作区 Worker 运行态（并发上限 / 当前并发 / 运行中任务）。 */
+export async function getPlanTaskWorkers(workspaceId: string): Promise<PlanTaskWorkers> {
+  const q = `workspaceId=${encodeURIComponent(workspaceId)}`;
+  const resp = await fetch(`${BASE}/api/plan-tasks/workers?${q}`, { headers: headers(false) });
+  return parse<PlanTaskWorkers>(resp);
+}
+
+/** 手动回收失联/疑似卡死任务 → queued（真运行任务会被拒绝）。 */
+export async function recoverPlanTask(
+  workspaceId: string, taskId: string,
+): Promise<{ ok: boolean; task?: PlanTaskView; error?: string }> {
+  const resp = await fetch(
+    `${BASE}/api/plan-tasks/${encodeURIComponent(taskId)}/recover?workspaceId=${encodeURIComponent(workspaceId)}`,
+    { method: 'POST', headers: headers() },
+  );
+  return parse<{ ok: boolean; task?: PlanTaskView; error?: string }>(resp);
 }
 
 // ---- 计划模式（plan mode，对齐官方 plan-mode）----

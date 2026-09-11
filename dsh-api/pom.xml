@@ -56,6 +56,10 @@
         </dependency>
         <dependency>
             <groupId>com.bizfty.anchon</groupId>
+            <artifactId>dsh-plan-task</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.bizfty.anchon</groupId>
             <artifactId>dsh-fs</artifactId>
         </dependency>
         <dependency>

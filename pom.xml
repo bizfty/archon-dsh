@@ -24,6 +24,7 @@
         <module>dsh-tool</module>
         <module>dsh-todo</module>
         <module>dsh-plan</module>
+        <module>dsh-plan-task</module>
         <module>dsh-fs</module>
         <module>dsh-shell</module>
         <module>dsh-skill</module>
@@ -115,6 +116,11 @@
             <dependency>
                 <groupId>com.bizfty.anchon</groupId>
                 <artifactId>dsh-plan</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.bizfty.anchon</groupId>
+                <artifactId>dsh-plan-task</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
